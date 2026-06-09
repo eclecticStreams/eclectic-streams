@@ -304,7 +304,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4)}
   </div>
   <div class="cfg-row">
     <div class="sec-label">Firebase DB URL</div>
-    <input type="text" id="fbUrl" value="https://sports-803-1b806-default-rtdb.firebaseio.com"/>
+    <input type="text" id="fbUrl" value="https://eclectic-streams-default-rtdb.firebaseio.com"/>
     <div class="cfg-hint">Reads <code style="font-size:10px;color:#ffd700">livetv/channels</code></div>
   </div>
   <div class="cfg-row fb-path-row">
@@ -975,7 +975,7 @@ ${awayBlock}
 // FIREBASE WIDGET CODE (the code that goes on Blogger)
 // ═══════════════════════════════════════════
 function getFirebaseWidgetCode(){
-  const dbUrl=(document.getElementById('fbUrl').value||'https://sports-803-1b806-default-rtdb.firebaseio.com').trim();
+  const dbUrl=(document.getElementById('fbUrl').value||'https://eclectic-streams-default-rtdb.firebaseio.com').trim();
   const path=(document.getElementById('fbMatchPath').value||'esconfig/todaysMatches').trim();
   const blogBase=(document.getElementById('blogBase').value||'https://sports803livestream.blogspot.com').replace(/\/$/,'');
   return `<!-- ECLECTIC STREAMS — TODAY'S MATCHES (Firebase-powered, auto-updates) -->
