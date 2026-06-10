@@ -452,6 +452,18 @@ const ALL_LEAGUES=[
   {id:'uefa.champions',name:'Champions League',short:'UCL',sport:'football',emoji:'⚽',espnPath:'soccer/uefa.champions',sofaId:7},
   {id:'uefa.europa',name:'Europa League',short:'UEL',sport:'football',emoji:'⚽',espnPath:'soccer/uefa.europa',sofaId:679},
   {id:'uefa.europa.conf',name:'Conference League',short:'UECL',sport:'football',emoji:'⚽',espnPath:'soccer/uefa.europa.conf',sofaId:17015},
+  {id:'fifa.world',name:'FIFA World Cup',short:'World Cup',sport:'football',emoji:'🌍',espnPath:'soccer/fifa.world',sofaId:16},
+  {id:'fifa.cwc',name:'Club World Cup',short:'CWC',sport:'football',emoji:'🌐',espnPath:'soccer/fifa.cwc',sofaId:24},
+  {id:'club.friendly',name:'Club Friendlies',short:'Club Friendly',sport:'football',emoji:'🤝',espnPath:'soccer/club.friendly',sofaId:131},
+  {id:'fifa.friendly',name:'Intl Friendlies',short:'Intl Friendly',sport:'football',emoji:'🌐',espnPath:'soccer/fifa.friendly',sofaId:264},
+  {id:'uefa.euro',name:'UEFA Euro',short:'Euro',sport:'football',emoji:'🇪🇺',espnPath:'soccer/uefa.euro',sofaId:1},
+  {id:'uefa.nations',name:'Nations League',short:'UNL',sport:'football',emoji:'🏴',espnPath:'soccer/uefa.nations',sofaId:10931},
+  {id:'caf.nations',name:'AFCON',short:'AFCON',sport:'football',emoji:'🌍',espnPath:'soccer/caf.nations',sofaId:29},
+  {id:'conmebol.america',name:'Copa América',short:'Copa América',sport:'football',emoji:'🏆',espnPath:'soccer/conmebol.america',sofaId:133},
+  {id:'concacaf.gold',name:'CONCACAF Gold Cup',short:'Gold Cup',sport:'football',emoji:'🏆',espnPath:'soccer/concacaf.gold',sofaId:140},
+  {id:'concacaf.champions',name:'CONCACAF Champions',short:'CONCACAF CC',sport:'football',emoji:'🏆',espnPath:'soccer/concacaf.champions',sofaId:26},
+  {id:'eng.fa',name:'FA Cup',short:'FA Cup',sport:'football',emoji:'🏆',espnPath:'soccer/eng.fa',sofaId:3},
+  {id:'eng.league_cup',name:'Carabao Cup',short:'EFL Cup',sport:'football',emoji:'🏆',espnPath:'soccer/eng.league_cup',sofaId:21},
   {id:'nba',name:'NBA',short:'NBA',sport:'basketball',emoji:'🏀',espnPath:'basketball/nba',espnType:'basketball'},
   {id:'wnba',name:'WNBA',short:'WNBA',sport:'basketball',emoji:'🏀',espnPath:'basketball/wnba',espnType:'basketball'},
   {id:'f1',name:'Formula 1',short:'F1',sport:'motorsport',emoji:'🏎️',espnPath:'racing/f1',espnType:'racing'},
@@ -555,7 +567,7 @@ async function fetchSofaSchedule(leagueId,dateStr){try{const r=await fetch(`http
 // BROADCAST RESOLUTION
 // ═══════════════════════════════════════════
 const SPORT_KW={football:['soccer','football','premier','laliga','bundesliga','serie a','ligue','champions','europa','mls'],basketball:['nba','basketball','wnba','hoops'],motorsport:['f1','formula','motogp','nascar','indycar','racing','grand prix'],other:['nhl','hockey','mlb','baseball','nfl','tennis','ufc','mma']};
-const LEAGUE_KW={'eng.1':['premier league','epl','sky sports','bt sport','peacock','nbcsn','universo'],'esp.1':['la liga','laliga','espn deportes','beinsports'],'ita.1':['serie a','paramount','cbs'],'ger.1':['bundesliga','dazn','sport1'],'fra.1':['ligue 1','beinsports','canal'],'uefa.champions':['champions','ucl','cbs','paramount'],'nba':['nba','espn','tnt','league pass'],'f1':['f1','formula 1','sky f1','f1 tv','dazn f1'],'motogp':['motogp','bein'],'nhl':['nhl','espn','tnt','sportsnet'],'mlb':['mlb','espn','fox','apple'],'nfl':['nfl','espn','cbs','fox','nbc','amazon'],'mma-ufc':['ufc','mma','espn']};
+const LEAGUE_KW={'eng.1':['premier league','epl','sky sports','bt sport','peacock','nbcsn','universo'],'esp.1':['la liga','laliga','espn deportes','beinsports'],'ita.1':['serie a','paramount','cbs'],'ger.1':['bundesliga','dazn','sport1'],'fra.1':['ligue 1','beinsports','canal'],'uefa.champions':['champions','ucl','cbs','paramount'],'uefa.europa':['europa league','uel','dazn'],'uefa.europa.conf':['conference league','uecl'],'fifa.world':['world cup','fifa','fox sports','telemundo'],'fifa.cwc':['club world cup','cwc'],'club.friendly':['friendly','pre-season','preseason'],'fifa.friendly':['international friendly','friendly'],'uefa.euro':['euros','euro','bbc','itv'],'uefa.nations':['nations league','unl'],'caf.nations':['afcon','africa cup','supersport'],'conmebol.america':['copa america','conmebol','telemundo'],'concacaf.gold':['gold cup','concacaf'],'concacaf.champions':['concacaf champions'],'eng.fa':['fa cup','bbc','itv'],'eng.league_cup':['carabao cup','efl cup','sky sports'],'nba':['nba','espn','tnt','league pass'],'f1':['f1','formula 1','sky f1','f1 tv','dazn f1'],'motogp':['motogp','bein'],'nhl':['nhl','espn','tnt','sportsnet'],'mlb':['mlb','espn','fox','apple'],'nfl':['nfl','espn','cbs','fox','nbc','amazon'],'mma-ufc':['ufc','mma','espn']};
 
 function keywordMatchChannel(match){if(!allChannels.length)return null;let best=null,bestScore=0;allChannels.forEach(ch=>{const name=(ch.name||'').toLowerCase();let score=0;(SPORT_KW[match.sport]||[]).forEach(kw=>{if(name.includes(kw))score+=3;});(LEAGUE_KW[match.league.id]||[]).forEach(kw=>{if(name.includes(kw))score+=5;});match.league.name.toLowerCase().split(/\s+/).forEach(w=>{if(w.length>3&&name.includes(w))score+=4;});if(!match.isRacing){[...match.homeName.toLowerCase().split(/\s+/),...match.awayName.toLowerCase().split(/\s+/)].forEach(w=>{if(w.length>4&&name.includes(w))score+=7;});}if(score>bestScore){bestScore=score;best=ch;}});if(best&&bestScore>=3){best._kwScore=bestScore;return best;}return null;}
 
