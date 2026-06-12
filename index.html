@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <style>
 :root{
   --red:#e53935;--red-dim:rgba(229,57,53,.13);--red-border:rgba(229,57,53,.28);
@@ -250,7 +251,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4)}
   <div class="logo">
     <div class="logo-badge">803</div>
     <div>
-      <div class="logo-text">ECLECTIC <span>STREAMS</span></div>
+      <div class="logo-text">SPORTS <span>803</span></div>
       <div class="logo-sub">Card Generator v4</div>
     </div>
   </div>
@@ -316,6 +317,12 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4)}
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
     Generate Cards
   </button>
+  <div class="cfg-row" style="margin-top:10px">
+    <div class="sec-label">Admin Access</div>
+    <button id="esAuthBtn" class="btn btn-secondary" style="width:100%;justify-content:center" onclick="esGoogleSignIn()">🔐 Sign In with Google</button>
+    <div id="esUidDisplay" style="display:none;margin-top:6px;padding:6px 8px;background:#0e0e13;border:1px solid #1e1e28;border-radius:6px;font-size:10px;color:#ffd700;word-break:break-all;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent.replace('Your UID: ','')).then(()=>alert('UID copied!'))"></div>
+    <div class="cfg-hint">Sign in to enable secure Firebase writes. Click UID to copy it.</div>
+  </div>
 </aside>
 
 <main class="main">
@@ -540,8 +547,25 @@ function initFirebase(){
   const dbUrl=(document.getElementById('fbUrl').value||'').trim();
   if(!dbUrl)return;
   try{
-    if(!firebase.apps.length)firebase.initializeApp({databaseURL:dbUrl});
+    if(!firebase.apps.length)firebase.initializeApp({
+      apiKey:"AIzaSyD7DQrjzfFG_t80boV96uclo8OWWWOguHI",
+      authDomain:"eclectic-streams.firebaseapp.com",
+      databaseURL:dbUrl,
+      projectId:"eclectic-streams"
+    });
     rtdb=firebase.database();
+    // Auth state listener
+    firebase.auth().onAuthStateChanged(function(user){
+      const btn=document.getElementById('esAuthBtn');
+      const uid=document.getElementById('esUidDisplay');
+      if(user){
+        if(btn){btn.textContent='Sign Out ('+user.displayName+')';btn.onclick=function(){firebase.auth().signOut();};}
+        if(uid){uid.style.display='block';uid.textContent='Your UID: '+user.uid;}
+      }else{
+        if(btn){btn.textContent='🔐 Sign In with Google';btn.onclick=esGoogleSignIn;}
+        if(uid){uid.style.display='none';}
+      }
+    });
     rtdb.ref('livetv/channels').on('value',snap=>{
       if(!snap.exists()){allChannels=[];setFbBadge('orange','0 channels');return;}
       const d=snap.val();
@@ -556,6 +580,10 @@ function initFirebase(){
   }catch(e){setFbBadge('red',e.message);}
 }
 function setFbBadge(col,msg){document.getElementById('fbBadge').className='info-badge '+col;document.getElementById('fbStatus').textContent=msg;}
+function esGoogleSignIn(){
+  const provider=new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(provider).catch(function(e){alert('Sign in failed: '+e.message);});
+}
 
 // ═══════════════════════════════════════════
 // SOFA SCORE
