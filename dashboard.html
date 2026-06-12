@@ -182,6 +182,9 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
 .thumb-builder-grid{display:grid;grid-template-columns:340px 1fr;gap:18px}
 @media(max-width:900px){.thumb-builder-grid{grid-template-columns:1fr}}
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -581,6 +584,10 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
     <div style="font-family:var(--cond);font-size:1.4rem;font-weight:900;text-transform:uppercase">Channel <span style="color:var(--red)">Library</span></div>
     <button class="btn-red" onclick="openAddChannel()">+ Add Channel</button>
   </div>
+  <div id="ch-fb-status" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.75rem;flex-wrap:wrap">
+    <span id="ch-fb-status-text" style="color:#888">🔄 Connecting to Firebase…</span>
+    <button id="ch-fb-auth-btn" class="btn" style="padding:4px 10px;font-size:.7rem" onclick="esDashSignIn()">🔐 Sign In with Google (Admin)</button>
+  </div>
   <div class="searchbar"><input type="text" id="ch-search" placeholder="Search channels…" oninput="filterChannels()"></div>
   <div class="card" style="padding:0;overflow:hidden">
     <table class="ch-table">
@@ -854,6 +861,68 @@ const ESPN='https://site.api.espn.com/apis/site/v2/sports';
 const TSDB='https://www.thesportsdb.com/api/v1/json/3';
 const CLAUDE_API='https://api.anthropic.com/v1/messages';
 
+// ═══ FIREBASE (shared livetv/channels with blog) ═══
+const ES_FB_CONFIG={
+  apiKey:"AIzaSyD7DQrjzfFG_t80boV96uclo8OWWWOguHI",
+  authDomain:"eclectic-streams.firebaseapp.com",
+  databaseURL:"https://eclectic-streams-default-rtdb.firebaseio.com",
+  projectId:"eclectic-streams"
+};
+const ES_ADMIN_UID='IiQTwjlhMlh59FvBa65zQ3olRms2';
+let esRtdb=null,esFbUser=null;
+
+function esDashInitFirebase(){
+  try{
+    if(!firebase.apps.length)firebase.initializeApp(ES_FB_CONFIG);
+    esRtdb=firebase.database();
+    firebase.auth().onAuthStateChanged(function(user){
+      esFbUser=user;
+      const btn=document.getElementById('ch-fb-auth-btn');
+      const status=document.getElementById('ch-fb-status-text');
+      if(user){
+        if(user.uid===ES_ADMIN_UID){
+          if(btn){btn.textContent='Sign Out ('+(user.displayName||user.email)+')';btn.onclick=function(){firebase.auth().signOut();};}
+          if(status)status.textContent='✅ Firebase connected — admin write access enabled';
+        }else{
+          if(btn){btn.textContent='Sign Out (wrong account)';btn.onclick=function(){firebase.auth().signOut();};}
+          if(status)status.textContent='⚠️ Signed in, but this account is not the admin account — saves will fail';
+        }
+      }else{
+        if(btn){btn.textContent='🔐 Sign In with Google (Admin)';btn.onclick=esDashSignIn;}
+        if(status)status.textContent='👁️ Read-only — sign in as admin to add/edit/delete channels';
+      }
+    });
+    esDashLoadChannels();
+  }catch(e){
+    const status=document.getElementById('ch-fb-status-text');
+    if(status)status.textContent='❌ Firebase init failed: '+e.message;
+  }
+}
+function esDashSignIn(){
+  const provider=new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(provider).catch(function(e){toast('Sign in failed: '+e.message,'e');});
+}
+function esDashLoadChannels(){
+  const status=document.getElementById('ch-fb-status-text');
+  esRtdb.ref('livetv/channels').on('value',function(snap){
+    if(!snap.exists()){
+      channels=[];
+      renderChannels();
+      if(status && !esFbUser)status.textContent='👁️ Read-only — 0 channels in Firebase. Sign in as admin to add channels.';
+      return;
+    }
+    const d=snap.val();
+    channels=Object.keys(d).map(function(k){
+      const c=d[k];
+      return {id:k,name:c.name||'',region:c.region||'',sport:c.sport||c.tags||'',url:c.url||'',active:c.active!==false};
+    });
+    renderChannels();
+    if(status && !esFbUser)status.textContent='👁️ Read-only — '+channels.length+' channel(s) loaded from Firebase';
+  },function(err){
+    if(status)status.textContent='❌ Could not load channels: '+err.message;
+  });
+}
+
 let CFG={
   blogId:'',clientId:'',imgbbKey:'',playerBase:'https://soulmap1.blogspot.com/p/media-player.html',
   activeLeagues:['ucl','epl','laliga','seriea','bundesliga','f1','nba','ufc'],
@@ -969,7 +1038,7 @@ const DEFAULT_CHANNELS=[
 // ═══ STORAGE ═══
 function loadAll(){
   try{const p=JSON.parse(localStorage.getItem(SK_CFG)||'{}');if(p.data)CFG={...CFG,...p.data};}catch(e){}
-  try{const p=JSON.parse(localStorage.getItem(SK_CH)||'{}');channels=p.data?.length?p.data:[...DEFAULT_CHANNELS];}catch(e){channels=[...DEFAULT_CHANNELS];}
+  channels=[...DEFAULT_CHANNELS]; // placeholder until Firebase loads (see esDashLoadChannels)
   try{const p=JSON.parse(localStorage.getItem(SK_POST)||'{}');if(p.data)postLog=p.data;}catch(e){}
   try{const p=JSON.parse(localStorage.getItem(SK_LOGO)||'{}');if(p.data)LOGO_CACHE=p.data;}catch(e){}
   try{const p=JSON.parse(localStorage.getItem(SK_DDKC)||'{}');if(p.data)ddkanquCache=p.data;}catch(e){}
@@ -980,7 +1049,7 @@ function loadAll(){
 }
 function saveAll(){
   try{localStorage.setItem(SK_CFG,JSON.stringify({data:CFG,ts:Date.now()}));}catch(e){}
-  try{localStorage.setItem(SK_CH,JSON.stringify({data:channels,ts:Date.now()}));}catch(e){}
+  // channels are persisted to Firebase directly (see saveChannel/deleteCH) — no localStorage needed
   try{localStorage.setItem(SK_POST,JSON.stringify({data:postLog,ts:Date.now()}));}catch(e){}
   try{localStorage.setItem(SK_LOGO,JSON.stringify({data:LOGO_CACHE,ts:Date.now()}));}catch(e){}
   try{localStorage.setItem(SK_DDKC,JSON.stringify({data:ddkanquCache,ts:Date.now()}));}catch(e){}
@@ -1966,8 +2035,29 @@ function renderChannels(filter=''){const tbody=document.getElementById('ch-tbody
 function filterChannels(){renderChannels(document.getElementById('ch-search').value.toLowerCase());}
 function openAddChannel(){editingCH=null;document.getElementById('modal-ch-title').textContent='Add Channel';['ch-name','ch-region','ch-sport','ch-url'].forEach(id=>set(id,''));openModal('modal-channel');}
 function editCH(id){const c=channels.find(x=>x.id===id);if(!c)return;editingCH=id;document.getElementById('modal-ch-title').textContent='Edit Channel';set('ch-name',c.name);set('ch-region',c.region);set('ch-sport',c.sport);set('ch-url',c.url);openModal('modal-channel');}
-function saveChannel(){const name=v('ch-name');if(!name){toast('Name required','e');return;}const obj={name,region:v('ch-region'),sport:v('ch-sport'),url:v('ch-url')};if(editingCH){const i=channels.findIndex(c=>c.id===editingCH);if(i>-1)channels[i]={...channels[i],...obj};}else channels.push({id:'c'+Date.now(),...obj});saveAll();renderChannels();closeModal('modal-channel');toast('Channel saved ✓','s');}
-function deleteCH(id){if(!confirm('Delete?'))return;channels=channels.filter(c=>c.id!==id);saveAll();renderChannels();}
+function saveChannel(){
+  const name=v('ch-name');
+  if(!name){toast('Name required','e');return;}
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to save channels','e');return;}
+  const obj={name,region:v('ch-region'),sport:v('ch-sport'),url:v('ch-url'),active:true,updatedAt:Date.now()};
+  if(editingCH){
+    esRtdb.ref('livetv/channels/'+editingCH).update(obj)
+      .then(()=>{closeModal('modal-channel');toast('Channel saved ✓','s');})
+      .catch(e=>toast('Save failed: '+e.message,'e'));
+  }else{
+    obj.createdAt=Date.now();
+    esRtdb.ref('livetv/channels').push(obj)
+      .then(()=>{closeModal('modal-channel');toast('Channel saved ✓','s');})
+      .catch(e=>toast('Save failed: '+e.message,'e'));
+  }
+}
+function deleteCH(id){
+  if(!confirm('Delete?'))return;
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to delete channels','e');return;}
+  esRtdb.ref('livetv/channels/'+id).remove()
+    .then(()=>toast('Channel deleted','s'))
+    .catch(e=>toast('Delete failed: '+e.message,'e'));
+}
 
 // ═══ SCHEDULER ═══
 const schedLogs=[];
@@ -2602,6 +2692,7 @@ async function buildRaceArticleBody(race){
 // ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',()=>{
   loadAll();renderAll();
+  esDashInitFirebase();
   if(fullRacesData.length)renderFullRaces(fullRacesData);
   if(CFG.schedEnabled){document.getElementById('sched-enabled').checked=true;startSched();}
   set('player-base',CFG.playerBase);updateIframeBox();
