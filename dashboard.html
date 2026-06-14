@@ -182,6 +182,9 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
 .thumb-builder-grid{display:grid;grid-template-columns:340px 1fr;gap:18px}
 @media(max-width:900px){.thumb-builder-grid{grid-template-columns:1fr}}
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -199,6 +202,7 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
       <button class="nav-pill" onclick="showPage('compose')">✍️ Compose</button>
       <button class="nav-pill" onclick="showPage('thumbbuilder')">🖼️ Thumbnails</button>
       <button class="nav-pill" onclick="showPage('channels')">📺 Channels</button>
+      <button class="nav-pill" onclick="showPage('ads')">💰 Ads</button>
       <button class="nav-pill" onclick="showPage('scheduler')">⏰ Scheduler</button>
       <button class="nav-pill" onclick="showPage('postlog')">📋 Log</button>
       <button class="nav-pill" onclick="showPage('settings')">⚙️ Settings</button>
@@ -581,6 +585,10 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
     <div style="font-family:var(--cond);font-size:1.4rem;font-weight:900;text-transform:uppercase">Channel <span style="color:var(--red)">Library</span></div>
     <button class="btn-red" onclick="openAddChannel()">+ Add Channel</button>
   </div>
+  <div id="ch-fb-status" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.75rem;flex-wrap:wrap">
+    <span id="ch-fb-status-text" style="color:#888">🔄 Connecting to Firebase…</span>
+    <button id="ch-fb-auth-btn" class="btn" style="padding:4px 10px;font-size:.7rem" onclick="esDashSignIn()">🔐 Sign In with Google (Admin)</button>
+  </div>
   <div class="searchbar"><input type="text" id="ch-search" placeholder="Search channels…" oninput="filterChannels()"></div>
   <div class="card" style="padding:0;overflow:hidden">
     <table class="ch-table">
@@ -590,6 +598,59 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
   </div>
 </div>
 
+<!-- ADS & MONETIZATION -->
+<div class="page" id="page-ads">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-family:var(--cond);font-size:1.4rem;font-weight:900;text-transform:uppercase">Ads &amp; <span style="color:var(--red)">Monetization</span></div>
+    <button class="btn-red" onclick="openAddAdSlot()">+ Add Ad Slot</button>
+  </div>
+  <div id="ads-fb-status" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.75rem;flex-wrap:wrap">
+    <span id="ads-fb-status-text" style="color:#888">🔄 Connecting to Firebase…</span>
+    <button id="ads-fb-auth-btn" class="btn" style="padding:4px 10px;font-size:.7rem" onclick="esDashSignIn()">🔐 Sign In with Google (Admin)</button>
+  </div>
+  <div class="card" style="margin-bottom:14px;font-size:.8rem;color:#999;line-height:1.6">
+    Add ad codes from AdSense, Adsterra, Monetag, or paste your own custom HTML/JS snippet (popunders, native ads, banners, etc). Each slot can be placed in a specific spot on your blog and toggled on/off without editing the theme. Premium subscribers never see slots placed in <b>Live TV</b> or <b>Match Cards</b> — those automatically respect your ad-free subscription benefit.
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="ch-table">
+      <thead><tr><th>Name</th><th>Network</th><th>Placement</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="ads-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ADD/EDIT AD SLOT MODAL -->
+<div class="modal-overlay" id="modal-adslot">
+  <div class="modal">
+    <div class="modal-head"><h3 id="adslot-modal-title">Add Ad Slot</h3><button class="close-btn" onclick="closeModal('modal-adslot')">✕</button></div>
+    <div class="form-group"><label>Slot Name</label><input type="text" id="ad-name" placeholder="e.g. Adsterra Banner — Top"></div>
+    <div class="form-row">
+      <div><label>Ad Network</label><select id="ad-network" onchange="onAdNetworkChange()">
+        <option value="adsense">Google AdSense</option>
+        <option value="adsterra">Adsterra</option>
+        <option value="monetag">Monetag</option>
+        <option value="custom">Custom / Other (manual HTML/JS)</option>
+      </select></div>
+      <div><label>Placement</label><select id="ad-placement">
+        <option value="header">Header (top of blog, all pages)</option>
+        <option value="in-feed">In-Feed (between articles)</option>
+        <option value="live-tv">Live TV Panel (hidden for subscribers)</option>
+        <option value="match-cards">Match Cards Widget (hidden for subscribers)</option>
+        <option value="sidebar">Sidebar</option>
+        <option value="footer">Footer</option>
+        <option value="popunder">Popunder / Script-only (no visible container)</option>
+      </select></div>
+    </div>
+    <div class="form-group"><label id="ad-code-label">Ad Code (HTML/JS snippet — paste exactly as given by the network)</label>
+      <textarea id="ad-code" rows="6" style="font-family:var(--mono);font-size:.72rem" placeholder="&lt;script&gt;...&lt;/script&gt; or &lt;ins class=&quot;adsbygoogle&quot;&gt;...&lt;/ins&gt;"></textarea>
+      <div style="font-size:.7rem;color:#777;margin-top:6px" id="ad-network-hint"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:4px 0 12px;cursor:pointer;text-transform:none;font-size:.78rem;color:var(--text)">
+      <input type="checkbox" id="ad-active" checked style="width:16px;height:16px;accent-color:var(--red)"> Active (show on blog)
+    </label>
+    <div style="display:flex;gap:7px"><button class="btn-red" onclick="saveAdSlot()">Save</button><button class="btn-ghost" onclick="closeModal('modal-adslot')">Cancel</button></div>
+  </div>
+</div>
 <!-- SCHEDULER -->
 <div class="page" id="page-scheduler">
   <div style="font-family:var(--cond);font-size:1.4rem;font-weight:900;text-transform:uppercase;margin-bottom:16px">Auto <span style="color:var(--red)">Scheduler</span></div>
@@ -854,8 +915,213 @@ const ESPN='https://site.api.espn.com/apis/site/v2/sports';
 const TSDB='https://www.thesportsdb.com/api/v1/json/3';
 const CLAUDE_API='https://api.anthropic.com/v1/messages';
 
+// ═══ FIREBASE (shared livetv/channels with blog) ═══
+const ES_FB_CONFIG={
+  apiKey:"AIzaSyD7DQrjzfFG_t80boV96uclo8OWWWOguHI",
+  authDomain:"eclectic-streams.firebaseapp.com",
+  databaseURL:"https://eclectic-streams-default-rtdb.firebaseio.com",
+  projectId:"eclectic-streams"
+};
+const ES_ADMIN_UID='IiQTwjlhMlh59FvBa65zQ3olRms2';
+let esRtdb=null,esFbUser=null;
+
+// ═══ Shared "Watch" link scheme — matches index.html buildChannelLink ═══
+const ES_BLOG_BASE='https://sports803livestream.blogspot.com';
+function buildESChannelLink(channelId){return ES_BLOG_BASE+'/?channel='+encodeURIComponent(channelId);}
+function getWatchLinkForEvent(ev){
+  try{
+    if(ev){
+      const sources=getChannelsForEvent(ev);
+      const withId=sources.find(s=>s.id);
+      if(withId)return buildESChannelLink(withId.id);
+    }
+  }catch(e){}
+  return CFG.playerBase||ES_BLOG_BASE;
+}
+
+function esDashInitFirebase(){
+  try{
+    if(!firebase.apps.length)firebase.initializeApp(ES_FB_CONFIG);
+    esRtdb=firebase.database();
+    firebase.auth().onAuthStateChanged(function(user){
+      esFbUser=user;
+      const btn=document.getElementById('ch-fb-auth-btn');
+      const status=document.getElementById('ch-fb-status-text');
+      const adsBtn=document.getElementById('ads-fb-auth-btn');
+      const adsStatus=document.getElementById('ads-fb-status-text');
+      if(user){
+        if(user.uid===ES_ADMIN_UID){
+          if(btn){btn.textContent='Sign Out ('+(user.displayName||user.email)+')';btn.onclick=function(){firebase.auth().signOut();};}
+          if(status)status.textContent='✅ Firebase connected — admin write access enabled';
+          if(adsBtn){adsBtn.textContent='Sign Out ('+(user.displayName||user.email)+')';adsBtn.onclick=function(){firebase.auth().signOut();};}
+          if(adsStatus)adsStatus.textContent='✅ Firebase connected — admin write access enabled';
+          esDashLoadSettings(); // pull synced dashboard settings for this admin account
+        }else{
+          if(btn){btn.textContent='Sign Out (wrong account)';btn.onclick=function(){firebase.auth().signOut();};}
+          if(status)status.textContent='⚠️ Signed in, but this account is not the admin account — saves will fail';
+          if(adsBtn){adsBtn.textContent='Sign Out (wrong account)';adsBtn.onclick=function(){firebase.auth().signOut();};}
+          if(adsStatus)adsStatus.textContent='⚠️ Signed in, but this account is not the admin account — saves will fail';
+        }
+      }else{
+        if(btn){btn.textContent='🔐 Sign In with Google (Admin)';btn.onclick=esDashSignIn;}
+        if(status)status.textContent='👁️ Read-only — sign in as admin to add/edit/delete channels';
+        if(adsBtn){adsBtn.textContent='🔐 Sign In with Google (Admin)';adsBtn.onclick=esDashSignIn;}
+        if(adsStatus)adsStatus.textContent='👁️ Read-only — sign in as admin to add/edit/delete ad slots';
+      }
+    });
+    esDashLoadChannels();
+    esDashLoadAds();
+  }catch(e){
+    const status=document.getElementById('ch-fb-status-text');
+    if(status)status.textContent='❌ Firebase init failed: '+e.message;
+  }
+}
+function esDashSignIn(){
+  const provider=new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(provider).catch(function(e){toast('Sign in failed: '+e.message,'e');});
+}
+function esDashLoadChannels(){
+  const status=document.getElementById('ch-fb-status-text');
+  esRtdb.ref('livetv/channels').on('value',function(snap){
+    if(!snap.exists()){
+      channels=[];
+      renderChannels();
+      if(status && !esFbUser)status.textContent='👁️ Read-only — 0 channels in Firebase. Sign in as admin to add channels.';
+      return;
+    }
+    const d=snap.val();
+    channels=Object.keys(d).map(function(k){
+      const c=d[k];
+      return {id:k,name:c.name||'',region:c.region||'',sport:c.sport||c.tags||'',url:c.url||'',active:c.active!==false};
+    });
+    renderChannels();
+    if(status && !esFbUser)status.textContent='👁️ Read-only — '+channels.length+' channel(s) loaded from Firebase';
+  },function(err){
+    if(status)status.textContent='❌ Could not load channels: '+err.message;
+  });
+}
+
+// ═══ Ad Slots (synced to Firebase esconfig/ads — read by blog theme) ═══
+const AD_NETWORK_HINTS={
+  adsense:'Paste the full <ins class="adsbygoogle">…</ins> + <script> snippet from your AdSense ad unit.',
+  adsterra:'Paste the full <script> snippet Adsterra gave you for this ad unit (banner, native, social bar, etc).',
+  monetag:'Paste the full <script> snippet from your Monetag zone (in-page push, vignette, interstitial, etc).',
+  custom:'Paste any HTML/JS ad code from another network or your own sponsor banner.'
+};
+function esDashLoadAds(){
+  const status=document.getElementById('ads-fb-status-text');
+  esRtdb.ref('esconfig/ads').on('value',function(snap){
+    const d=snap.val()||{};
+    adSlots=Object.keys(d).map(function(k){
+      const a=d[k];
+      return {id:k,name:a.name||'',network:a.network||'custom',placement:a.placement||'in-feed',code:a.code||'',active:a.active!==false};
+    });
+    renderAdSlots();
+    if(status && !esFbUser)status.textContent='👁️ Read-only — '+adSlots.length+' ad slot(s) loaded from Firebase';
+  },function(err){
+    if(status)status.textContent='❌ Could not load ad slots: '+err.message;
+  });
+}
+function renderAdSlots(){
+  const tb=document.getElementById('ads-tbody');
+  if(!tb)return;
+  const netLabels={adsense:'AdSense',adsterra:'Adsterra',monetag:'Monetag',custom:'Custom'};
+  const placeLabels={header:'Header',"in-feed":'In-Feed',"live-tv":'Live TV',"match-cards":'Match Cards',sidebar:'Sidebar',footer:'Footer',popunder:'Popunder'};
+  if(!adSlots.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#777;padding:20px">No ad slots yet. Click "+ Add Ad Slot" to add your first one.</td></tr>';return;}
+  tb.innerHTML=adSlots.map(a=>`<tr>
+    <td>${escHtmlDash(a.name)}</td>
+    <td>${netLabels[a.network]||a.network}</td>
+    <td>${placeLabels[a.placement]||a.placement}</td>
+    <td>${a.active?'<span style="color:var(--green)">● Active</span>':'<span style="color:#777">○ Off</span>'}</td>
+    <td><button class="btn-ghost btn-xs" onclick="openEditAd('${a.id}')">Edit</button> <button class="btn-ghost btn-xs" onclick="toggleAdSlot('${a.id}',${!a.active})">${a.active?'Disable':'Enable'}</button> <button class="btn-ghost btn-xs" onclick="deleteAdSlot('${a.id}')">Delete</button></td>
+  </tr>`).join('');
+}
+function escHtmlDash(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function openAddAdSlot(){
+  editingAd=null;
+  document.getElementById('adslot-modal-title').textContent='Add Ad Slot';
+  set('ad-name','');set('ad-code','');
+  document.getElementById('ad-network').value='adsense';
+  document.getElementById('ad-placement').value='in-feed';
+  document.getElementById('ad-active').checked=true;
+  onAdNetworkChange();
+  openModal('modal-adslot');
+}
+function openEditAd(id){
+  const a=adSlots.find(x=>x.id===id);
+  if(!a)return;
+  editingAd=id;
+  document.getElementById('adslot-modal-title').textContent='Edit Ad Slot';
+  set('ad-name',a.name);set('ad-code',a.code);
+  document.getElementById('ad-network').value=a.network;
+  document.getElementById('ad-placement').value=a.placement;
+  document.getElementById('ad-active').checked=a.active;
+  onAdNetworkChange();
+  openModal('modal-adslot');
+}
+function onAdNetworkChange(){
+  const net=document.getElementById('ad-network').value;
+  const hint=document.getElementById('ad-network-hint');
+  if(hint)hint.textContent=AD_NETWORK_HINTS[net]||'';
+}
+function saveAdSlot(){
+  const name=v('ad-name');
+  const code=document.getElementById('ad-code').value.trim();
+  if(!name||!code){toast('Name and ad code are required','e');return;}
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to save ad slots','e');return;}
+  const obj={
+    name,
+    network:document.getElementById('ad-network').value,
+    placement:document.getElementById('ad-placement').value,
+    code,
+    active:document.getElementById('ad-active').checked,
+    updatedAt:Date.now()
+  };
+  const ref=editingAd?esRtdb.ref('esconfig/ads/'+editingAd):esRtdb.ref('esconfig/ads').push();
+  ref.set(obj)
+    .then(()=>{closeModal('modal-adslot');toast('Ad slot saved ✓','s');})
+    .catch(e=>toast('Save failed: '+e.message,'e'));
+}
+function toggleAdSlot(id,active){
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to change ad slots','e');return;}
+  esRtdb.ref('esconfig/ads/'+id).update({active:active})
+    .catch(e=>toast('Update failed: '+e.message,'e'));
+}
+function deleteAdSlot(id){
+  if(!confirm('Delete this ad slot?'))return;
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to delete ad slots','e');return;}
+  esRtdb.ref('esconfig/ads/'+id).remove()
+    .then(()=>toast('Ad slot deleted','s'))
+    .catch(e=>toast('Delete failed: '+e.message,'e'));
+}
+
+// ═══ Cross-device dashboard settings sync (esconfig/dashboardSettings) ═══
+// Only synced when signed in as the admin account, so the same Settings,
+// Channels and Ads show up on any device after signing in.
+let _esSettingsLoaded=false,_esSettingsSaveTimer=null;
+function esDashLoadSettings(){
+  esRtdb.ref('esconfig/dashboardSettings').once('value').then(function(snap){
+    const d=snap.val();
+    if(d){
+      CFG={...CFG,...d};
+      LOGO_OVERRIDES=parseLOOverrides(CFG.logoOverridesRaw);
+      ddkanquMappings=parseDDKMappings(CFG.ddkanquMappingsRaw);
+      applyConfigToUI();
+      toast('Settings synced from your account ✓','s');
+    }
+    _esSettingsLoaded=true;
+  }).catch(function(){_esSettingsLoaded=true;});
+}
+function esDashSyncSettings(){
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID||!_esSettingsLoaded)return;
+  clearTimeout(_esSettingsSaveTimer);
+  _esSettingsSaveTimer=setTimeout(function(){
+    esRtdb.ref('esconfig/dashboardSettings').set({...CFG,updatedAt:Date.now()}).catch(function(){});
+  },800);
+}
+
 let CFG={
-  blogId:'',clientId:'',imgbbKey:'',playerBase:'https://www.eclecticstreams.com.ng',
+  blogId:'',clientId:'',imgbbKey:'',playerBase:'https://sports803livestream.blogspot.com',
   activeLeagues:['ucl','epl','laliga','seriea','bundesliga','f1','nba','ufc'],
   schedTiming:60,schedStatus:'DRAFT',schedInterval:300000,
   schedEnabled:false,schedThumbs:true,logoOverridesRaw:'',
@@ -867,8 +1133,8 @@ let CFG={
 ytApiKey:''
 };
 let LOGO_OVERRIDES={},LOGO_CACHE={};
-let allEvents=[],channels=[],postLog={};
-let accessToken=null,editingCH=null;
+let allEvents=[],channels=[],postLog={},adSlots=[];
+let accessToken=null,editingCH=null,editingAd=null;
 let editingPostId=null;   // postId of an existing Blogger post being edited via Compose
 let editingEventKey=null; // evKey() of the event currently being edited
 let schedTimer=null,countdownTimer=null,schedNextFire=null;
@@ -969,7 +1235,7 @@ const DEFAULT_CHANNELS=[
 // ═══ STORAGE ═══
 function loadAll(){
   try{const p=JSON.parse(localStorage.getItem(SK_CFG)||'{}');if(p.data)CFG={...CFG,...p.data};}catch(e){}
-  try{const p=JSON.parse(localStorage.getItem(SK_CH)||'{}');channels=p.data?.length?p.data:[...DEFAULT_CHANNELS];}catch(e){channels=[...DEFAULT_CHANNELS];}
+  channels=[...DEFAULT_CHANNELS]; // placeholder until Firebase loads (see esDashLoadChannels)
   try{const p=JSON.parse(localStorage.getItem(SK_POST)||'{}');if(p.data)postLog=p.data;}catch(e){}
   try{const p=JSON.parse(localStorage.getItem(SK_LOGO)||'{}');if(p.data)LOGO_CACHE=p.data;}catch(e){}
   try{const p=JSON.parse(localStorage.getItem(SK_DDKC)||'{}');if(p.data)ddkanquCache=p.data;}catch(e){}
@@ -980,11 +1246,12 @@ function loadAll(){
 }
 function saveAll(){
   try{localStorage.setItem(SK_CFG,JSON.stringify({data:CFG,ts:Date.now()}));}catch(e){}
-  try{localStorage.setItem(SK_CH,JSON.stringify({data:channels,ts:Date.now()}));}catch(e){}
+  // channels are persisted to Firebase directly (see saveChannel/deleteCH) — no localStorage needed
   try{localStorage.setItem(SK_POST,JSON.stringify({data:postLog,ts:Date.now()}));}catch(e){}
   try{localStorage.setItem(SK_LOGO,JSON.stringify({data:LOGO_CACHE,ts:Date.now()}));}catch(e){}
   try{localStorage.setItem(SK_DDKC,JSON.stringify({data:ddkanquCache,ts:Date.now()}));}catch(e){}
   try{localStorage.setItem(SK_FR,JSON.stringify({data:fullRacesData,ts:Date.now()}));}catch(e){}
+  esDashSyncSettings(); // push CFG to Firebase so it's available on other devices
 }
 function saveCFG(){
   CFG.blogId=v('cfg-blogid');CFG.clientId=v('cfg-clientid');
@@ -1071,7 +1338,7 @@ const DS_LENGTH_WORDS={short:300,medium:600,long:1000,xl:1500};
 function buildClaudePrompt(title,ev,isHighlights=false){
   const words=DS_LENGTH_WORDS[CFG.deepseekLength]||600;
   const tone=CFG.deepseekTone||'enthusiastic sports journalist';
-  const player=CFG.playerBase||'https://www.eclecticstreams.com.ng';
+  const player=getWatchLinkForEvent(ev);
   if(isHighlights&&ev&&ev.type==='match'){
     const h=ev.home.name,a=ev.away.name,lg=ev.league.name;
     const score=ev.home.score!==''?h+' '+ev.home.score+'–'+ev.away.score+' '+a:'';
@@ -1244,7 +1511,7 @@ const P = {
 };
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 function buildArticleFallback(title,ev){
-  const player=CFG.playerBase;
+  const player=getWatchLinkForEvent(ev);
   if(!ev){const p=parseTitle(title);const h=p?.home||'Home Team',a=p?.away||'Away Team';return pick(P.mo)+' '+h+' and '+a+'.\n\n'+pick(P.mc)+'\n\n📅 Date: TBD\n⚽ Match: '+h+' vs '+a+'\n\n📺 Watch free on Eclectic Streams — no sign-up required.\n\n'+pick(P.cta)+'\n\n#'+h.replace(/\s/g,'')+' #'+a.replace(/\s/g,'')+' #EclecticStreams';}
   if(ev.type==='race'){const ts=ev.startTime?ev.startTime.toLocaleString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',timeZoneName:'short'}):'this weekend';return pick(P.ro)+' the '+ev.name+'.\n\n'+pick(P.rc)+'\n\n🏎️ Event: '+ev.name+'\n📍 Venue: '+(ev.venue||'TBC')+'\n🕐 Start: '+ts+'\n\nStream FREE: '+player+'\n\n'+pick(P.cta);}
   const h=ev.home.name,a=ev.away.name,lg=ev.league.name;
@@ -1486,10 +1753,11 @@ async function fetchLeague(league){
 }
 function parseESPN(ev,league){
   const comp=ev.competitions?.[0]||{};const comps=comp.competitors||[];const status=ev.status?.type?.description||'Scheduled';const startTime=ev.date?new Date(ev.date):null;
-  if(league.type==='race')return{id:ev.id,league,type:'race',name:ev.name||ev.shortName||league.name+' Race',venue:comp.venue?.fullName||'',location:comp.venue?.address?.city||'',entries:comps.slice(0,5).map(c=>({name:c.athlete?.displayName||c.team?.displayName||'—'})),status,startTime};
+  const broadcasts=(comp.broadcasts||[]).flatMap(b=>b.names||[]).filter(Boolean);
+  if(league.type==='race')return{id:ev.id,league,type:'race',name:ev.name||ev.shortName||league.name+' Race',venue:comp.venue?.fullName||'',location:comp.venue?.address?.city||'',entries:comps.slice(0,5).map(c=>({name:c.athlete?.displayName||c.team?.displayName||'—'})),status,startTime,broadcasts};
   const home=comps.find(c=>c.homeAway==='home')||comps[0]||{};const away=comps.find(c=>c.homeAway==='away')||comps[1]||{};
   const getRawLogo=c=>{const href=(c.team?.logos?.find(l=>l.href&&l.width>=50)||c.team?.logos?.[0])?.href||'';return href?href.replace(/^http:\/\//i,'https://'):''};
-  return{id:ev.id,league,type:'match',home:{name:home.team?.displayName||'TBD',logo:getRawLogo(home),score:home.score??''},away:{name:away.team?.displayName||'TBD',logo:getRawLogo(away),score:away.score??''},status,startTime};
+  return{id:ev.id,league,type:'match',home:{name:home.team?.displayName||'TBD',logo:getRawLogo(home),score:home.score??''},away:{name:away.team?.displayName||'TBD',logo:getRawLogo(away),score:away.score??''},status,startTime,broadcasts};
 }
 let activeFilter='all';
 function renderLeagueFilterPills(){
@@ -1690,7 +1958,14 @@ const RACE_IMGS={'monaco':'https://www.formula1.com/content/dam/fom-website/2018
 function getRaceImg(ev){const hay=((ev.name||'')+(ev.venue||'')).toLowerCase();for(const k of Object.keys(RACE_IMGS).sort((a,b)=>b.length-a.length))if(hay.includes(k))return RACE_IMGS[k];if(ev.league?.id==='f1')return RACE_IMGS['formula 1'];if(ev.league?.id==='motogp')return RACE_IMGS['motogp'];if(ev.league?.id==='nascar')return RACE_IMGS['nascar'];return'';}
 const LEAGUE_LABELS={ucl:['UEFA Champions League','UCL','Football Live Stream','Eclectic Streams'],epl:['Premier League','EPL','Football Live Stream','Eclectic Streams'],laliga:['La Liga','Spanish Football','Football Live Stream','Eclectic Streams'],seriea:['Serie A','Italian Football','Football Live Stream','Eclectic Streams'],bundesliga:['Bundesliga','German Football','Football Live Stream','Eclectic Streams'],f1:['Formula 1','F1','Grand Prix','Motorsport Live Stream','Eclectic Streams'],nba:['NBA','Basketball','NBA Live Stream','Eclectic Streams'],nfl:['NFL','American Football','Eclectic Streams'],ufc:['UFC','MMA','Combat Sports','Eclectic Streams'],atp:['ATP','Tennis','Eclectic Streams'],wta:['WTA','Women Tennis','Eclectic Streams']};
 function getLabels(ev){const base=LEAGUE_LABELS[ev.league?.id]||['Eclectic Streams','Live '];const extra=[];if(ev.home?.name)extra.push(ev.home.name);if(ev.away?.name)extra.push(ev.away.name);return[...new Set([...base,...extra])];}
-function findCHsForLeague(id){return channels.filter(c=>c.sport.split(',').map(s=>s.trim()).some(s=>s===id||id.includes(s)||s.includes(id)));}
+function findCHsForLeague(id){
+  return channels.filter(c=>{
+    if(!c.sport)return false;
+    const tags=c.sport.split(',').map(s=>s.trim()).filter(Boolean);
+    if(!tags.length)return false;
+    return tags.some(s=>s===id||id.includes(s)||s.includes(id));
+  });
+}
 
 // ═══ CONTENT INJECTORS ═══
 function injectHeader(tag,text){const body=document.getElementById('post-body');const c=tag==='h2'?'#4cc9f0':'#e2e8f0';body.value+='\n\n<'+tag+' style="color:'+c+';font-size:'+(tag==='h2'?'1.1':'0.95')+'rem;font-weight:900;border-left:3px solid #e63946;padding-left:10px;margin:16px 0 8px">'+text+'</'+tag+'>\n';updateSEO();}
@@ -1966,8 +2241,29 @@ function renderChannels(filter=''){const tbody=document.getElementById('ch-tbody
 function filterChannels(){renderChannels(document.getElementById('ch-search').value.toLowerCase());}
 function openAddChannel(){editingCH=null;document.getElementById('modal-ch-title').textContent='Add Channel';['ch-name','ch-region','ch-sport','ch-url'].forEach(id=>set(id,''));openModal('modal-channel');}
 function editCH(id){const c=channels.find(x=>x.id===id);if(!c)return;editingCH=id;document.getElementById('modal-ch-title').textContent='Edit Channel';set('ch-name',c.name);set('ch-region',c.region);set('ch-sport',c.sport);set('ch-url',c.url);openModal('modal-channel');}
-function saveChannel(){const name=v('ch-name');if(!name){toast('Name required','e');return;}const obj={name,region:v('ch-region'),sport:v('ch-sport'),url:v('ch-url')};if(editingCH){const i=channels.findIndex(c=>c.id===editingCH);if(i>-1)channels[i]={...channels[i],...obj};}else channels.push({id:'c'+Date.now(),...obj});saveAll();renderChannels();closeModal('modal-channel');toast('Channel saved ✓','s');}
-function deleteCH(id){if(!confirm('Delete?'))return;channels=channels.filter(c=>c.id!==id);saveAll();renderChannels();}
+function saveChannel(){
+  const name=v('ch-name');
+  if(!name){toast('Name required','e');return;}
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to save channels','e');return;}
+  const obj={name,region:v('ch-region'),sport:v('ch-sport'),url:v('ch-url'),active:true,updatedAt:Date.now()};
+  if(editingCH){
+    esRtdb.ref('livetv/channels/'+editingCH).update(obj)
+      .then(()=>{closeModal('modal-channel');toast('Channel saved ✓','s');})
+      .catch(e=>toast('Save failed: '+e.message,'e'));
+  }else{
+    obj.createdAt=Date.now();
+    esRtdb.ref('livetv/channels').push(obj)
+      .then(()=>{closeModal('modal-channel');toast('Channel saved ✓','s');})
+      .catch(e=>toast('Save failed: '+e.message,'e'));
+  }
+}
+function deleteCH(id){
+  if(!confirm('Delete?'))return;
+  if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to delete channels','e');return;}
+  esRtdb.ref('livetv/channels/'+id).remove()
+    .then(()=>toast('Channel deleted','s'))
+    .catch(e=>toast('Delete failed: '+e.message,'e'));
+}
 
 // ═══ SCHEDULER ═══
 const schedLogs=[];
@@ -2081,7 +2377,85 @@ async function getDdkanquSourcesForEvent(ev){
   if(CFG.enableDdkanqu){const scraped=await scrapeDDKanqu(ev.home.name,ev.away.name);ddkanquCache[key]=scraped||'';try{localStorage.setItem(SK_DDKC,JSON.stringify({data:ddkanquCache,ts:Date.now()}));}catch(e){}if(scraped)sources.push({url:scraped,type:'mora'});}
   return sources;
 }
-function getChannelsForEvent(ev){return findCHsForLeague(ev.league?.id||'').filter(c=>c.url).map(c=>({url:c.url,type:'mora'}));}
+// ═══ BROADCAST-VERIFIED CHANNEL MATCHING ═══
+const ES_ABBREV_MAP={
+  'ss':'sky sports','sky sp':'sky sports','skysports':'sky sports',
+  'bt sp':'bt sport','btsport':'bt sport',
+  'espn+':'espn plus','espn deportes':'espn deportes',
+  'cbs sp':'cbs sports','cbssports':'cbs sports','cbs sn':'cbs sports network',
+  'beinsport':'bein sports','bein sp':'bein sports',
+  'dazn f1':'dazn f1','f1 tv':'f1 tv','sky f1':'sky f1',
+  'nb csn':'nbcsn','nbc sn':'nbcsn','nbc sp':'nbc sports',
+  'fox sp':'fox sports','foxsports':'fox sports',
+  'tnt sp':'tnt sports','tntsports':'tnt sports',
+  'bt sp2':'bt sport 2','sky sp1':'sky sports 1','sky sp2':'sky sports 2',
+  'espnews':'espn news','espnu':'espn u','espn2':'espn 2',
+  'peacock':'peacock','hbo max':'max','paramount+':'paramount plus',
+  'amazon pv':'amazon prime video','prime video':'amazon prime video',
+  'apple tv':'apple tv plus',
+  'ziggo':'ziggo sport','ziggo sp':'ziggo sport',
+  'fubo':'fubo tv','fubotv':'fubo tv',
+  'sling':'sling tv',
+  'univision':'univision','universo':'universo','telemundo':'telemundo',
+  'supersport':'supersport','super sport':'supersport',
+};
+const ES_BROADCASTER_FAMILIES={
+  sky:['sky sports','sky sports main event','sky sports premier league','sky sports football','sky sports f1','sky sports news','sky sports arena','sky sports mix'],
+  espn:['espn','espn2','espn+','espn plus','espnews','espn deportes','espnu','espn f1'],
+  bein:['bein sports','bein sports 1','bein sports 2','bein sports 3','bein sports connect'],
+  fox:['fox','fox sports','fox sports 1','fox sports 2','fs1','fs2'],
+  nbc:['nbc','nbc sports','nbcsn','peacock','nbc sports network'],
+  cbs:['cbs','cbs sports','cbs sports network','paramount plus','paramount+'],
+  dazn:['dazn','dazn f1','dazn boxing'],
+  bt:['bt sport','bt sport 1','bt sport 2','bt sport 3','bt sport extra'],
+  tnt:['tnt','tnt sports','tbs','truetv'],
+  amazon:['amazon prime video','prime video','prime'],
+  fubo:['fubo','fubo tv','fubotv'],
+  ziggo:['ziggo sport','ziggo sport select'],
+  supersport:['supersport','super sport'],
+};
+function esNormalizeName(raw){let s=String(raw||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();Object.entries(ES_ABBREV_MAP).forEach(([a,f])=>{if(s===a||s.startsWith(a+' ')||s.endsWith(' '+a))s=s.replace(a,f);});return s;}
+function esTokenize(s){return esNormalizeName(s).split(' ').filter(t=>t.length>1);}
+function esGetBroadcasterFamily(name){const n=esNormalizeName(name);for(const[fam,members]of Object.entries(ES_BROADCASTER_FAMILIES)){if(members.some(m=>n.includes(m)||m.includes(n)))return fam;}return null;}
+function esFuzzyChannelScore(broadcastName,fbChannelName){
+  const bn=esNormalizeName(broadcastName),fn=esNormalizeName(fbChannelName);
+  if(!bn||!fn)return 0;
+  if(bn===fn)return 100;
+  if(bn.includes(fn)||fn.includes(bn))return 85;
+  const bt=esTokenize(bn),ft=esTokenize(fn);
+  if(!bt.length||!ft.length)return 0;
+  const common=bt.filter(t=>ft.includes(t));
+  const overlap=(common.length*2)/(bt.length+ft.length);
+  let score=Math.round(overlap*70);
+  const bFam=esGetBroadcasterFamily(bn),fFam=esGetBroadcasterFamily(fn);
+  if(bFam&&fFam&&bFam===fFam)score+=20;
+  const brandWords=['sky','espn','bein','fox','nbc','cbs','dazn','bt','tnt','amazon','fubo','ziggo','mola','startimes','canal','sport','tv','network','supersport'];
+  const bBrands=bt.filter(t=>brandWords.includes(t)),fBrands=ft.filter(t=>brandWords.includes(t));
+  const brandOverlap=bBrands.filter(t=>fBrands.includes(t));
+  if(bBrands.length>0&&fBrands.length>0&&brandOverlap.length===0)score=Math.max(0,score-30);
+  return Math.min(100,score);
+}
+// Only returns channels CONFIRMED to broadcast this specific event (via ESPN broadcast data).
+// Falls back to league-tag matching ONLY if ESPN supplies no broadcast info at all for the event,
+// and even then caps it to a small set so unrelated channels aren't dumped in.
+function getChannelsForEvent(ev){
+  const broadcasts=ev.broadcasts||[];
+  if(broadcasts.length){
+    const matched=[];
+    broadcasts.forEach(bname=>{
+      let best=null,bestScore=0;
+      channels.forEach(c=>{
+        if(!c.url)return;
+        const score=esFuzzyChannelScore(bname,c.name||'');
+        if(score>bestScore){bestScore=score;best=c;}
+      });
+      if(best&&bestScore>=40&&!matched.some(m=>m.url===best.url))matched.push({id:best.id,url:best.url,type:'mora',channelName:best.name,verified:true});
+    });
+    return matched; // may be empty if no channel in library matches — that's correct, not a bug
+  }
+  // No broadcast data from ESPN for this event — fall back to league-tag match, capped to 2, flagged unverified
+  return findCHsForLeague(ev.league?.id||'').filter(c=>c.url).slice(0,2).map(c=>({id:c.id,url:c.url,type:'mora',channelName:c.name,verified:false}));
+}
 function getProgTxtStreamsForEvent(ev){if(ev.type==='race')return[];const key=pairKey(ev.home.name,ev.away.name);return externalStreamsMap[key]||[];}
 async function getAllStreamSourcesForEvent(ev){
   const sources=[...getChannelsForEvent(ev)];
@@ -2602,6 +2976,7 @@ async function buildRaceArticleBody(race){
 // ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',()=>{
   loadAll();renderAll();
+  esDashInitFirebase();
   if(fullRacesData.length)renderFullRaces(fullRacesData);
   if(CFG.schedEnabled){document.getElementById('sched-enabled').checked=true;startSched();}
   set('player-base',CFG.playerBase);updateIframeBox();
