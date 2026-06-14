@@ -860,7 +860,7 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
     <!-- Manual post URL — paste any Blogger post URL or numeric ID to update it -->
     <div class="form-group" style="background:rgba(76,201,240,.06);border:1px solid rgba(76,201,240,.2);border-radius:8px;padding:10px 12px">
       <label style="color:var(--blue)">📌 Manual Post URL / ID to Update <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional — paste your Blogger post URL or numeric post ID)</span></label>
-      <input type="text" id="hl-manual-post-url" placeholder="https://sports803livestream.blogspot.com/…  OR  1234567890123456789" style="font-family:var(--mono);font-size:.72rem">
+      <input type="text" id="hl-manual-post-url" placeholder="https://www.eclecticstreams.com.ng/…  OR  1234567890123456789" style="font-family:var(--mono);font-size:.72rem">
       <div style="font-size:.62rem;color:var(--muted2);margin-top:4px">If filled, the highlights will UPDATE that specific post instead of creating a new one. Leave blank to auto-detect from post log or create new.</div>
     </div>
 
@@ -926,7 +926,7 @@ const ES_ADMIN_UID='IiQTwjlhMlh59FvBa65zQ3olRms2';
 let esRtdb=null,esFbUser=null;
 
 // ═══ Shared "Watch" link scheme — matches index.html buildChannelLink ═══
-const ES_BLOG_BASE='https://sports803livestream.blogspot.com';
+const ES_BLOG_BASE='https://www.eclecticstreams.com.ng';
 function buildESChannelLink(channelId){return ES_BLOG_BASE+'/?channel='+encodeURIComponent(channelId);}
 function getWatchLinkForEvent(ev){
   try{
@@ -1121,7 +1121,7 @@ function esDashSyncSettings(){
 }
 
 let CFG={
-  blogId:'',clientId:'',imgbbKey:'',playerBase:'https://sports803livestream.blogspot.com',
+  blogId:'',clientId:'',imgbbKey:'',playerBase:'https://www.eclecticstreams.com.ng',
   activeLeagues:['ucl','epl','laliga','seriea','bundesliga','f1','nba','ufc'],
   schedTiming:60,schedStatus:'DRAFT',schedInterval:300000,
   schedEnabled:false,schedThumbs:true,logoOverridesRaw:'',
