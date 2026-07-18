@@ -703,7 +703,7 @@ async function fetchMatches(){
   let toFetch;
   if(activeLeague!=='all')toFetch=ALL_LEAGUES.filter(l=>l.id===activeLeague);
   else if(activeSport!=='all')toFetch=ALL_LEAGUES.filter(l=>l.sport===activeSport);
-  else toFetch=ALL_LEAGUES.filter(l=>['eng.1','esp.1','ita.1','ger.1','fra.1','uefa.champions','usa.1','nba','f1','motogp','nhl','mlb','nfl'].includes(l.id));
+  else toFetch=ALL_LEAGUES;
 
   const fetches=toFetch.map(league=>{
     const et=league.espnType||'soccer';
