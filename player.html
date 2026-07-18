@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eclectic Streams — Player</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14171C;
+    --panel:#1B1F26;
+    --line:#2A2F38;
+    --text:#EDEFF2;
+    --muted:#8B93A1;
+    --live:#3DDC84;
+    --warn:#F5A623;
+    --err:#E13B3B;
+    --accent:#3DDC84;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow:hidden;}
+
+  #stage{position:relative;width:100vw;height:100vh;background:#000;}
+  video{position:absolute;inset:0;width:100%;height:100%;outline:none;background:#000;}
+
+  /* Top bar: wordmark + tally light + stream status */
+  #topbar{
+    position:absolute;top:0;left:0;right:0;
+    display:flex;align-items:center;gap:10px;
+    padding:14px 18px;
+    background:linear-gradient(to bottom, rgba(0,0,0,.65), transparent);
+    z-index:5;pointer-events:none;
+  }
+  #tally{
+    width:11px;height:11px;border-radius:50%;
+    background:var(--muted);
+    box-shadow:0 0 0 3px rgba(255,255,255,0.04);
+    transition:background .25s ease;
+  }
+  #tally.live{background:var(--live);box-shadow:0 0 10px 1px rgba(61,220,132,.7);animation:pulse 1.6s ease-in-out infinite;}
+  #tally.buffering{background:var(--warn);box-shadow:0 0 10px 1px rgba(245,166,35,.7);animation:pulse 1s ease-in-out infinite;}
+  #tally.error{background:var(--err);box-shadow:0 0 10px 1px rgba(225,59,59,.7);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.45;}}
+
+  #wordmark{
+    font-family:'Barlow Condensed',sans-serif;
+    font-weight:700;font-size:20px;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--text);
+  }
+  #wordmark span{color:var(--live);}
+  #statusPill{
+    font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:12px;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+    border:1px solid var(--line);border-radius:20px;padding:3px 10px;
+    margin-left:4px;
+  }
+
+  /* Gear / settings toggle */
+  #gearBtn{
+    position:absolute;bottom:18px;right:18px;z-index:6;
+    width:38px;height:38px;border-radius:50%;
+    background:rgba(20,23,28,.75);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    backdrop-filter:blur(4px);
+  }
+  #gearBtn:hover{border-color:var(--accent);}
+  #gearBtn svg{width:18px;height:18px;fill:var(--text);}
+
+  /* Load-URL bar (standalone entry point) */
+  #loadBar{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    z-index:8;display:flex;gap:8px;width:min(560px,86vw);
+  }
+  #loadBar input{
+    flex:1;background:var(--panel);border:1px solid var(--line);color:var(--text);
+    padding:11px 14px;border-radius:6px;font-size:14px;font-family:'Inter',sans-serif;
+  }
+  #loadBar input:focus{outline:none;border-color:var(--accent);}
+  #loadBar button{
+    background:var(--live);color:#0B1210;border:none;border-radius:6px;
+    padding:0 18px;font-weight:600;font-size:14px;cursor:pointer;
+    font-family:'Barlow Condensed',sans-serif;letter-spacing:.04em;text-transform:uppercase;
+  }
+  #loadBar button:hover{filter:brightness(1.08);}
+  #loadHint{
+    position:absolute;top:calc(50% + 34px);left:50%;transform:translateX(-50%);
+    z-index:8;font-size:12px;color:var(--muted);text-align:center;width:min(560px,86vw);
+  }
+
+  /* Settings panel */
+  #settingsPanel{
+    position:absolute;top:0;right:0;bottom:0;width:300px;
+    background:var(--panel);border-left:1px solid var(--line);
+    padding:20px 18px;z-index:10;
+    transform:translateX(100%);transition:transform .25s ease;
+    overflow-y:auto;
+  }
+  #settingsPanel.open{transform:translateX(0);}
+  #settingsPanel h3{
+    font-family:'Barlow Condensed',sans-serif;font-size:18px;letter-spacing:.04em;
+    text-transform:uppercase;margin:0 0 16px 0;color:var(--text);
+  }
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;letter-spacing:.03em;text-transform:uppercase;}
+  .field select, .field input[type=text]{
+    width:100%;background:#12151A;border:1px solid var(--line);color:var(--text);
+    padding:8px 10px;border-radius:5px;font-size:13px;font-family:'Inter',sans-serif;
+  }
+  .rowbtns{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;}
+  .smallbtn{
+    flex:1;min-width:110px;background:#12151A;border:1px solid var(--line);color:var(--text);
+    padding:8px 10px;border-radius:5px;font-size:12px;cursor:pointer;text-align:center;
+  }
+  .smallbtn:hover{border-color:var(--accent);}
+  #closePanel{position:absolute;top:16px;right:16px;color:var(--muted);cursor:pointer;font-size:18px;}
+
+  /* Error / reload overlay */
+  #errorOverlay{
+    position:absolute;inset:0;z-index:9;display:none;
+    background:rgba(10,11,13,.92);
+    flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;
+  }
+  #errorOverlay h4{
+    font-family:'Barlow Condensed',sans-serif;font-size:22px;letter-spacing:.03em;
+    text-transform:uppercase;color:var(--err);margin:0 0 6px 0;
+  }
+  #errorOverlay p{color:var(--muted);font-size:13px;max-width:420px;margin:0 0 16px 0;}
+  #errorOverlay .rowbtns{max-width:340px;}
+
+  /* Custom control bar */
+  #controls{
+    position:absolute;left:0;right:0;bottom:0;z-index:5;
+    display:flex;align-items:center;gap:12px;
+    padding:10px 16px;
+    background:linear-gradient(to top, rgba(0,0,0,.7), transparent);
+    opacity:0;transition:opacity .2s ease;
+  }
+  #stage:hover #controls, #controls.show{opacity:1;}
+  #controls button{
+    background:none;border:none;cursor:pointer;padding:4px;
+  }
+  #controls svg{width:20px;height:20px;fill:var(--text);}
+  #controls button:hover svg{fill:var(--accent);}
+  #seekbar{flex:1;accent-color:var(--live);}
+  #qualitySelect{
+    background:#12151A;color:var(--text);border:1px solid var(--line);
+    border-radius:5px;font-size:12px;padding:4px 6px;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="video" playsinline crossorigin="anonymous"></video>
+
+  <div id="topbar">
+    <div id="tally"></div>
+    <div id="wordmark">Eclectic<span>Streams</span></div>
+    <div id="statusPill" id="statusPill">Idle</div>
+  </div>
+
+  <div id="loadBar">
+    <input id="urlInput" type="text" placeholder="Paste .m3u8 stream URL...">
+    <button id="loadBtn">Play</button>
+  </div>
+  <div id="loadHint">Tip: you can also link directly with ?src=https://your-m3u8-url</div>
+
+  <div id="gearBtn" title="Settings">
+    <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7.3 7.3 0 00-1.63-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 00-.6.22L1.7 8.84a.5.5 0 00.12.64l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.5.5 0 00-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.24.1.5 0 .6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1112 8.5a3.5 3.5 0 010 7z"/></svg>
+  </div>
+
+  <div id="settingsPanel">
+    <div id="closePanel">&#10005;</div>
+    <h3>Settings</h3>
+
+    <div class="field">
+      <label>Single click</label>
+      <select id="clickAction">
+        <option value="none">Nothing</option>
+        <option value="pauseplay">Pause / Play</option>
+        <option value="mute">Mute / Unmute</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Double click</label>
+      <select id="dblClickAction">
+        <option value="none">Nothing</option>
+        <option value="pauseplay">Pause / Play</option>
+        <option value="mute" selected>Mute / Unmute</option>
+        <option value="fullscreen">Fullscreen</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Stall detection timeout</label>
+      <select id="stallTimeout">
+        <option value="off">Off</option>
+        <option value="10">10s</option>
+        <option value="15">15s</option>
+        <option value="20" selected>20s</option>
+        <option value="30">30s</option>
+        <option value="45">45s</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Auto-reload on error</label>
+      <select id="autoReload">
+        <option value="off" selected>Off</option>
+        <option value="3">Wait 3s</option>
+        <option value="5">Wait 5s</option>
+        <option value="10">Wait 10s</option>
+        <option value="20">Wait 20s</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Quick actions</label>
+      <div class="rowbtns">
+        <div class="smallbtn" id="copyUrlBtn">Copy stream URL</div>
+        <div class="smallbtn" id="reloadBtn">Reload player</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="errorOverlay">
+    <h4>Stream error</h4>
+    <p id="errorDetail">The stream could not be loaded. This is usually a stale link, an offline source, or a CORS block.</p>
+    <div class="rowbtns">
+      <div class="smallbtn" id="retryBtn">Retry now</div>
+      <div class="smallbtn" id="openSettingsFromError">Open settings</div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <button id="playBtn" title="Play / Pause">
+      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+    </button>
+    <button id="muteBtn" title="Mute / Unmute">
+      <svg id="muteIcon" viewBox="0 0 24 24"><path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2A4.5 4.5 0 0015 8.29v7.42A4.5 4.5 0 0016.5 12z"/></svg>
+    </button>
+    <input id="seekbar" type="range" min="0" max="100" value="0">
+    <select id="qualitySelect" title="Quality">
+      <option value="-1">Auto</option>
+    </select>
+    <button id="fsBtn" title="Fullscreen">
+      <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const video = document.getElementById('video');
+  const stage = document.getElementById('stage');
+  const tally = document.getElementById('tally');
+  const statusPill = document.getElementById('statusPill');
+  const loadBar = document.getElementById('loadBar');
+  const loadHint = document.getElementById('loadHint');
+  const urlInput = document.getElementById('urlInput');
+  const loadBtn = document.getElementById('loadBtn');
+  const gearBtn = document.getElementById('gearBtn');
+  const settingsPanel = document.getElementById('settingsPanel');
+  const closePanel = document.getElementById('closePanel');
+  const errorOverlay = document.getElementById('errorOverlay');
+  const errorDetail = document.getElementById('errorDetail');
+  const controls = document.getElementById('controls');
+  const playBtn = document.getElementById('playBtn');
+  const playIcon = document.getElementById('playIcon');
+  const muteBtn = document.getElementById('muteBtn');
+  const muteIcon = document.getElementById('muteIcon');
+  const seekbar = document.getElementById('seekbar');
+  const qualitySelect = document.getElementById('qualitySelect');
+  const fsBtn = document.getElementById('fsBtn');
+
+  const clickAction = document.getElementById('clickAction');
+  const dblClickAction = document.getElementById('dblClickAction');
+  const stallTimeoutSel = document.getElementById('stallTimeout');
+  const autoReloadSel = document.getElementById('autoReload');
+  const copyUrlBtn = document.getElementById('copyUrlBtn');
+  const reloadBtn = document.getElementById('reloadBtn');
+  const retryBtn = document.getElementById('retryBtn');
+  const openSettingsFromError = document.getElementById('openSettingsFromError');
+
+  let hls = null;
+  let currentSrc = null;
+  let stallWatchId = null;
+  let lastTime = -1;
+  let autoReloadTimer = null;
+
+  // ---- persisted settings ----
+  const store = {
+    get(k, d){ const v = localStorage.getItem(k); return v === null ? d : v; },
+    set(k, v){ localStorage.setItem(k, v); }
+  };
+  clickAction.value = store.get('clickAction', 'none');
+  dblClickAction.value = store.get('dblClickAction', 'mute');
+  stallTimeoutSel.value = store.get('stallTimeout', '20');
+  autoReloadSel.value = store.get('autoReload', 'off');
+
+  [clickAction, dblClickAction, stallTimeoutSel, autoReloadSel].forEach(sel=>{
+    sel.addEventListener('change', ()=> store.set(sel.id, sel.value));
+  });
+
+  function setTally(state){
+    tally.className = state; // '', 'live', 'buffering', 'error'
+    statusPill.textContent = state === 'live' ? 'Live'
+      : state === 'buffering' ? 'Buffering'
+      : state === 'error' ? 'Error'
+      : 'Idle';
+  }
+
+  function loadStream(url){
+    if(!url) return;
+    currentSrc = url;
+    errorOverlay.style.display = 'none';
+    loadBar.style.display = 'none';
+    loadHint.style.display = 'none';
+    setTally('buffering');
+    clearAutoReload();
+
+    if (hls) { hls.destroy(); hls = null; }
+    qualitySelect.innerHTML = '<option value="-1">Auto</option>';
+
+    if (Hls && Hls.isSupported()) {
+      hls = new Hls({ maxBufferLength: 30 });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, (evt, data) => {
+        data.levels.forEach((lvl, i) => {
+          const opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = (lvl.height ? lvl.height + 'p' : (i+1)+'x');
+          qualitySelect.appendChild(opt);
+        });
+        video.play().catch(()=>{});
+      });
+      hls.on(Hls.Events.ERROR, (evt, data) => {
+        if (data.fatal) handleFatalError(data.details || 'Playback error');
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.addEventListener('loadedmetadata', () => video.play().catch(()=>{}), { once:true });
+      video.addEventListener('error', () => handleFatalError('Playback error'), { once:true });
+    } else {
+      handleFatalError('HLS not supported in this browser');
+    }
+    startStallWatch();
+  }
+
+  function handleFatalError(detail){
+    setTally('error');
+    errorDetail.textContent = 'Stream error: ' + detail + '. This is usually a stale link, an offline source, or a CORS block.';
+    errorOverlay.style.display = 'flex';
+    stopStallWatch();
+    maybeAutoReload();
+  }
+
+  function maybeAutoReload(){
+    const val = autoReloadSel.value;
+    if (val === 'off') return;
+    let secs = parseInt(val, 10);
+    autoReloadTimer = setInterval(() => {
+      secs -= 1;
+      if (secs <= 0) { clearAutoReload(); loadStream(currentSrc); }
+    }, 1000);
+  }
+  function clearAutoReload(){
+    if (autoReloadTimer) clearInterval(autoReloadTimer);
+    autoReloadTimer = null;
+  }
+
+  function startStallWatch(){
+    stopStallWatch();
+    const setting = stallTimeoutSel.value;
+    if (setting === 'off') return;
+    const timeoutMs = parseInt(setting, 10) * 1000;
+    lastTime = -1;
+    stallWatchId = setInterval(() => {
+      if (video.paused || video.ended) return;
+      if (video.currentTime === lastTime) {
+        handleFatalError('Playback stalled');
+      } else {
+        lastTime = video.currentTime;
+      }
+    }, timeoutMs);
+  }
+  function stopStallWatch(){
+    if (stallWatchId) clearInterval(stallWatchId);
+    stallWatchId = null;
+  }
+
+  video.addEventListener('playing', () => setTally('live'));
+  video.addEventListener('waiting', () => setTally('buffering'));
+  video.addEventListener('pause', () => setTally('idle'));
+  video.addEventListener('timeupdate', () => {
+    if (video.duration && isFinite(video.duration)) {
+      seekbar.value = (video.currentTime / video.duration) * 100;
+    }
+  });
+
+  qualitySelect.addEventListener('change', () => {
+    if (hls) hls.currentLevel = parseInt(qualitySelect.value, 10);
+  });
+  seekbar.addEventListener('input', () => {
+    if (video.duration && isFinite(video.duration)) {
+      video.currentTime = (seekbar.value / 100) * video.duration;
+    }
+  });
+
+  function togglePlay(){
+    if (video.paused) video.play().catch(()=>{}); else video.pause();
+    playIcon.parentElement.innerHTML = video.paused
+      ? '<path d="M8 5v14l11-7z"/>'
+      : '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  }
+  function toggleMute(){
+    video.muted = !video.muted;
+    muteIcon.parentElement.innerHTML = video.muted
+      ? '<path d="M16.5 12A4.5 4.5 0 0015 8.29v2.02l1.48 1.48c.02-.13.02-.26.02-.39zm2.5 0a6.99 6.99 0 01-1.6 4.46l1.13 1.13A8.9 8.9 0 0021 12h-2zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.6.46-1.28.82-2 1.07v2.06a8.94 8.94 0 003.4-1.72L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>'
+      : '<path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2A4.5 4.5 0 0015 8.29v7.42A4.5 4.5 0 0016.5 12z"/>';
+  }
+  function toggleFullscreen(){
+    if (!document.fullscreenElement) stage.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+
+  playBtn.addEventListener('click', togglePlay);
+  muteBtn.addEventListener('click', toggleMute);
+  fsBtn.addEventListener('click', toggleFullscreen);
+
+  // click / double-click behavior on the video surface itself
+  let clickTimer = null;
+  video.addEventListener('click', () => {
+    if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; }
+    clickTimer = setTimeout(() => {
+      runAction(clickAction.value);
+      clickTimer = null;
+    }, 220);
+  });
+  video.addEventListener('dblclick', () => {
+    if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+    runAction(dblClickAction.value);
+  });
+  function runAction(action){
+    if (action === 'pauseplay') togglePlay();
+    else if (action === 'mute') toggleMute();
+    else if (action === 'fullscreen') toggleFullscreen();
+  }
+
+  // settings panel open/close
+  gearBtn.addEventListener('click', () => settingsPanel.classList.toggle('open'));
+  closePanel.addEventListener('click', () => settingsPanel.classList.remove('open'));
+  openSettingsFromError.addEventListener('click', () => settingsPanel.classList.add('open'));
+
+  // reload / retry
+  reloadBtn.addEventListener('click', () => { if (currentSrc) loadStream(currentSrc); });
+  retryBtn.addEventListener('click', () => { if (currentSrc) loadStream(currentSrc); });
+
+  copyUrlBtn.addEventListener('click', () => {
+    if (currentSrc) navigator.clipboard?.writeText(currentSrc).catch(()=>{});
+  });
+
+  // load bar
+  loadBtn.addEventListener('click', () => loadStream(urlInput.value.trim()));
+  urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadStream(urlInput.value.trim()); });
+
+  // ?src= query param support
+  const params = new URLSearchParams(window.location.search);
+  const srcParam = params.get('src');
+  if (srcParam) {
+    urlInput.value = srcParam;
+    loadStream(srcParam);
+  }
+
+  setTally('');
+})();
+</script>
+</body>
+</html>
