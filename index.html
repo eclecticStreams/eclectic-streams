@@ -449,7 +449,7 @@ const ALL_LEAGUES=[
   {id:'fra.1',name:'Ligue 1',short:'Ligue 1',sport:'football',emoji:'⚽',espnPath:'soccer/fra.1',sofaId:34},
   {id:'por.1',name:'Primeira Liga',short:'Liga Portugal',sport:'football',emoji:'⚽',espnPath:'soccer/por.1',sofaId:238},
   {id:'ned.1',name:'Eredivisie',short:'Eredivisie',sport:'football',emoji:'⚽',espnPath:'soccer/ned.1',sofaId:37},
-  {id:'sau.1',name:'Saudi Pro League',short:'Saudi Pro',sport:'football',emoji:'⚽',espnPath:'soccer/sau.1',sofaId:955},
+  {id:'ksa.1',name:'Saudi Pro League',short:'Saudi Pro',sport:'football',emoji:'⚽',espnPath:'soccer/ksa.1',sofaId:955},
   {id:'tur.1',name:'Süper Lig',short:'Süper Lig',sport:'football',emoji:'⚽',espnPath:'soccer/tur.1',sofaId:52},
   {id:'sco.1',name:'Scottish Prem',short:'SPFL',sport:'football',emoji:'⚽',espnPath:'soccer/sco.1',sofaId:36},
   {id:'usa.1',name:'MLS',short:'MLS',sport:'football',emoji:'⚽',espnPath:'soccer/usa.1',sofaId:242},
@@ -686,7 +686,7 @@ function buildLeagueFilter(){
   let h=`<div class="league-chip active" data-id="all">All</div>`;
   leagues.forEach(l=>{h+=`<div class="league-chip" data-id="${l.id}">${l.emoji} ${l.short}</div>`;});
   c.innerHTML=h;
-  c.querySelectorAll('.league-chip').forEach(ch=>{ch.addEventListener('click',()=>{c.querySelectorAll('.league-chip').forEach(x=>x.classList.remove('active'));ch.classList.add('active');activeLeague=ch.dataset.id;if(allMatches.length)renderEvents();});});
+  c.querySelectorAll('.league-chip').forEach(ch=>{ch.addEventListener('click',()=>{c.querySelectorAll('.league-chip').forEach(x=>x.classList.remove('active'));ch.classList.add('active');activeLeague=ch.dataset.id;fetchMatches();});});
 }
 
 // ═══════════════════════════════════════════
@@ -1219,7 +1219,7 @@ async function copyEl(id,btn,lbl){
 // ═══════════════════════════════════════════
 document.querySelectorAll('.out-tab').forEach(tab=>{tab.addEventListener('click',()=>{document.querySelectorAll('.out-tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.out-panel').forEach(p=>p.classList.remove('active'));tab.classList.add('active');document.getElementById('tab-'+tab.dataset.tab).classList.add('active');});});
 document.querySelectorAll('.date-tab').forEach(tab=>{tab.addEventListener('click',()=>{document.querySelectorAll('.date-tab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');activeOffset=parseInt(tab.dataset.offset);document.getElementById('customDate').value='';});});
-document.querySelectorAll('.sport-tab').forEach(tab=>{tab.addEventListener('click',()=>{document.querySelectorAll('.sport-tab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');activeSport=tab.dataset.sport;activeLeague='all';buildLeagueFilter();if(allMatches.length)renderEvents();});});
+document.querySelectorAll('.sport-tab').forEach(tab=>{tab.addEventListener('click',()=>{document.querySelectorAll('.sport-tab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');activeSport=tab.dataset.sport;activeLeague='all';buildLeagueFilter();fetchMatches();});});
 document.getElementById('fbMatchPath').addEventListener('input',()=>{ document.getElementById('fbPathDisplay').textContent=document.getElementById('fbMatchPath').value||'esconfig/todaysMatches'; updateFbPushPanel(); });
 
 const savedBase=localStorage.getItem('es_blogbase');
