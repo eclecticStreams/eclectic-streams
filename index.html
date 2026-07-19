@@ -189,6 +189,18 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4)}
 .fb-mode-btn{flex:1;padding:7px;border-radius:7px;font-family:var(--font-head);font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer;border:1px solid var(--border2);background:var(--surface2);color:var(--txt2);transition:all .13s;text-align:center}
 .fb-mode-btn:hover{border-color:var(--orange-border);color:#ffb74d}
 .fb-mode-btn.active{background:var(--orange-dim);border-color:var(--orange-border);color:#ffb74d}
+.mm-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:14px}
+.mm-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(3,169,244,.08);border-bottom:1px solid rgba(3,169,244,.2);cursor:pointer}
+.mm-hdr h3{font-family:var(--font-head);font-size:11px;font-weight:700;letter-spacing:1px;color:#4fc3f7;text-transform:uppercase;flex:1}
+.mm-body{padding:12px;display:none;flex-direction:column;gap:8px}
+.mm-body.open{display:flex}
+.mm-row{display:flex;flex-direction:column;gap:6px;padding:9px;background:var(--surface2);border:1px solid var(--border2);border-radius:7px}
+.mm-row-top{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--txt)}
+.mm-row-fields{display:flex;flex-wrap:wrap;gap:6px}
+.mm-row-fields>div{flex:1;min-width:90px}
+.mm-row-fields label{display:block;font-size:9px;color:var(--txt3);text-transform:uppercase;margin-bottom:2px;letter-spacing:.5px}
+.mm-row-actions{display:flex;gap:6px;margin-top:2px;align-items:center}
+.mm-empty{font-size:12px;color:var(--txt3);text-align:center;padding:18px}
 
 /* Output */
 .output-area{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
@@ -383,6 +395,18 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4)}
         🔥 Push <span id="fbPushCount">0</span> Matches to Firebase
       </button>
       <div class="fb-save-status" id="fbSaveStatus"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ MANAGE PUSHED MATCHES ══════════ -->
+  <div class="mm-panel" id="mmPanel">
+    <div class="mm-hdr" onclick="toggleManagePanel()">
+      <h3>🗂️ Manage Pushed Matches</h3>
+      <span style="font-size:10px;color:#4fc3f7" id="mmCount"></span>
+    </div>
+    <div class="mm-body" id="mmBody">
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadManagedMatches()">🔄 Refresh</button>
+      <div id="mmList"><div class="mm-empty">Click to load matches currently pushed to Firebase.</div></div>
     </div>
   </div>
 
@@ -936,6 +960,104 @@ function showFbStatus(type,msg){
   el.className='fb-save-status show '+type;
   el.innerHTML=`<div class="dot"></div><span>${msg}</span>`;
   if(type==='done')setTimeout(()=>{el.className='fb-save-status';},6000);
+}
+
+// ═══════════════════════════════════════════
+// MANAGE PUSHED MATCHES (view / edit / delete)
+// ═══════════════════════════════════════════
+let mmPanelOpen=false;
+function toggleManagePanel(){
+  mmPanelOpen=!mmPanelOpen;
+  document.getElementById('mmBody').classList.toggle('open',mmPanelOpen);
+  if(mmPanelOpen)loadManagedMatches();
+}
+
+async function loadManagedMatches(){
+  const list=document.getElementById('mmList');
+  if(!rtdb){list.innerHTML='<div class="mm-empty">Firebase not connected — sign in and check your DB URL first.</div>';return;}
+  const path=(document.getElementById('fbMatchPath').value||'esconfig/todaysMatches').trim();
+  list.innerHTML='<div class="mm-empty">Loading…</div>';
+  try{
+    const snap=await rtdb.ref(path).once('value');
+    renderManagedMatches(snap.val()||{});
+  }catch(e){
+    list.innerHTML='<div class="mm-empty">Failed to load: '+esc(e.message)+'</div>';
+  }
+}
+
+function chOptionsFor(selectedKey){
+  let html='<option value="">— No channel —</option>';
+  allChannels.forEach(ch=>{
+    html+='<option value="'+esc(ch._key)+'"'+(ch._key===selectedKey?' selected':'')+'>'+esc(ch.name)+'</option>';
+  });
+  return html;
+}
+
+function renderManagedMatches(data){
+  const list=document.getElementById('mmList');
+  const keys=Object.keys(data);
+  document.getElementById('mmCount').textContent=keys.length?keys.length+' pushed':'';
+  if(!keys.length){list.innerHTML='<div class="mm-empty">No matches currently pushed to this node.</div>';return;}
+  list.innerHTML=keys.map(k=>{
+    const m=data[k]||{};
+    return '<div class="mm-row" data-key="'+esc(k)+'">'
+      +'<div class="mm-row-top"><span>'+(m.leagueEmoji||'')+' '+esc(m.homeName||'?')+' vs '+esc(m.awayName||'?')+'</span><span style="font-weight:400;color:var(--txt3);font-size:10px">'+esc(m.leagueName||'')+'</span></div>'
+      +'<div class="mm-row-fields">'
+        +'<div><label>Channel</label><select data-f="channelKey">'+chOptionsFor(m.channelKey||'')+'</select></div>'
+        +'<div><label>Stream Link</label><input type="text" data-f="postUrl" value="'+esc(m.postUrl||'')+'"/></div>'
+        +'<div style="max-width:64px"><label>Home</label><input type="number" data-f="scoreHome" value="'+esc(m.scoreHome??'')+'"/></div>'
+        +'<div style="max-width:64px"><label>Away</label><input type="number" data-f="scoreAway" value="'+esc(m.scoreAway??'')+'"/></div>'
+      +'</div>'
+      +'<div class="mm-row-actions">'
+        +'<button class="btn btn-secondary btn-sm" style="width:auto" onclick="saveManagedMatch(\''+esc(k)+'\')">💾 Save</button>'
+        +'<button class="btn btn-primary btn-sm" style="width:auto" onclick="deleteManagedMatch(\''+esc(k)+'\')">🗑️ Delete</button>'
+        +'<span style="font-size:10px;color:var(--txt3)" id="mmStatus-'+esc(k)+'"></span>'
+      +'</div>'
+    +'</div>';
+  }).join('');
+}
+
+async function saveManagedMatch(key){
+  const path=(document.getElementById('fbMatchPath').value||'esconfig/todaysMatches').trim();
+  const row=document.querySelector('.mm-row[data-key="'+CSS.escape(key)+'"]');
+  const statusEl=document.getElementById('mmStatus-'+key);
+  if(!row||!rtdb)return;
+  const chSel=row.querySelector('[data-f="channelKey"]');
+  const linkInp=row.querySelector('[data-f="postUrl"]');
+  const shInp=row.querySelector('[data-f="scoreHome"]');
+  const saInp=row.querySelector('[data-f="scoreAway"]');
+  const chName=chSel.value?(allChannels.find(c=>c._key===chSel.value)?.name||''):'';
+  const scoreHome=shInp.value===''?'':parseInt(shInp.value);
+  const scoreAway=saInp.value===''?'':parseInt(saInp.value);
+  const updates={
+    channelKey:chSel.value||'',
+    channelName:chName,
+    postUrl:linkInp.value.trim(),
+    scoreHome:scoreHome,
+    scoreAway:scoreAway,
+    score:(scoreHome!==''&&scoreAway!=='')?(scoreHome+' - '+scoreAway):'',
+    updatedAt:Date.now()
+  };
+  statusEl.textContent='Saving…';statusEl.style.color='var(--txt3)';
+  try{
+    await rtdb.ref(path+'/'+key).update(updates);
+    statusEl.textContent='✅ Saved';statusEl.style.color='#66bb6a';
+    setTimeout(()=>{if(statusEl)statusEl.textContent='';},2500);
+  }catch(e){
+    statusEl.textContent='❌ '+e.message;statusEl.style.color='#e53935';
+  }
+}
+
+async function deleteManagedMatch(key){
+  if(!rtdb)return;
+  if(!confirm('Delete this match from Firebase? It will disappear from the live widget immediately.'))return;
+  const path=(document.getElementById('fbMatchPath').value||'esconfig/todaysMatches').trim();
+  try{
+    await rtdb.ref(path+'/'+key).remove();
+    loadManagedMatches();
+  }catch(e){
+    alert('Delete failed: '+e.message);
+  }
 }
 
 // ═══════════════════════════════════════════
