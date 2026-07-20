@@ -901,12 +901,22 @@ async function pushToFirebase(){
   showFbStatus('saving','Pushing to Firebase…');
 
   try{
+    // Load existing match records first — if Dashboard has already published a
+    // post for a match, its real Blogger URL lives here as `postUrl`; don't
+    // overwrite that with a guessed slug on merge/replace.
+    let existingData={};
+    try{
+      const existingSnap=await rtdb.ref(path).once('value');
+      existingData=existingSnap.val()||{};
+    }catch(e){/* non-fatal — falls back to guessed URLs */}
+
     // Build match data objects
     const newData={};
     selectedIds.forEach(id=>{
       const m=allMatches.find(x=>x.id===id);if(!m)return;
       const ch=getChannelForMatch(id);
-      const postUrl=buildPostUrl(m);
+      const existingPostUrl=existingData['match_'+id]?.postUrl;
+      const postUrl=postLinks[id]||existingPostUrl||buildPostUrl(m);
       const score=getScore(m);
 
       newData['match_'+id]={
