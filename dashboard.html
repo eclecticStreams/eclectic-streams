@@ -951,6 +951,15 @@ let esRtdb=null,esFbUser=null;
 // ═══ Shared "Watch" link scheme — matches index.html buildChannelLink ═══
 const ES_BLOG_BASE='https://www.eclecticstreams.com.ng';
 function buildESChannelLink(channelId){return ES_BLOG_BASE+'/?channel='+encodeURIComponent(channelId);}
+
+// ═══ Shared "Post URL" sync — writes the real Blogger permalink back to the
+// match record in Firebase (esconfig/todaysMatches) so index.html's match
+// cards link to the actual post instead of a guessed slug ═══
+const ES_MATCH_PATH='esconfig/todaysMatches';
+function syncPostUrlToFirebase(evId,url){
+  if(!esRtdb||!evId||!url)return;
+  esRtdb.ref(ES_MATCH_PATH+'/match_'+evId).update({postUrl:url}).catch(function(){});
+}
 function getWatchLinkForEvent(ev){
   try{
     if(ev){
@@ -1827,7 +1836,7 @@ function renderRaceCard(ev){
 // ═══ PER-EVENT ACTIONS ═══
 function findEv(sid){const id=decodeURIComponent(String(sid));return allEvents.find(e=>String(e.id)===id)||allEvents.find(e=>String(e.id)===String(sid))||null;}
 function getLog(ev){return postLog[evKey(ev)]||null;}
-function setLog(ev,data){postLog[evKey(ev)]={...(postLog[evKey(ev)]||{}),...data,ts:Date.now()};saveAll();updateStats();}
+function setLog(ev,data){postLog[evKey(ev)]={...(postLog[evKey(ev)]||{}),...data,ts:Date.now()};saveAll();updateStats();if(data.postUrl&&ev?.id)syncPostUrlToFirebase(ev.id,data.postUrl);}
 function evKey(ev){return ev.league.id+'|'+(ev.home?.name||ev.name||'').replace(/\s/g,'_')+'|'+(ev.away?.name||'').replace(/\s/g,'_');}
 async function genAndFill(sid){
   const ev=findEv(sid);if(!ev){toast('Event not found','e');return;}
