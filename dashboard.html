@@ -333,7 +333,12 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
     </div>
   </div>
   <div class="league-pills" id="league-filter-pills"></div>
-  <div class="searchbar"><input type="text" id="event-search" placeholder="Search events, teams, leagues…" oninput="filterEvents()"></div>
+  <div class="searchbar" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <input type="text" id="event-search" placeholder="Search events, teams, leagues…" oninput="filterEvents()" style="flex:1;min-width:200px">
+    <label class="toggle" style="display:flex;align-items:center;gap:8px;font-size:.78rem;white-space:nowrap;cursor:pointer">
+      <input type="checkbox" id="streams-only-toggle" onchange="toggleStreamsOnly(this.checked)"><div class="tslider"></div>📺 Streams only
+    </label>
+  </div>
   <div class="events-grid" id="events-grid">
     <div style="color:var(--muted2);grid-column:1/-1;padding:40px;text-align:center;opacity:.55;font-size:.85rem">Click "Fetch All" to load today's events.</div>
   </div>
@@ -1801,6 +1806,8 @@ function parseESPN(ev,league){
   return{id:ev.id,league,type:'match',home:{name:home.team?.displayName||'TBD',logo:getRawLogo(home),score:home.score??''},away:{name:away.team?.displayName||'TBD',logo:getRawLogo(away),score:away.score??''},status,startTime,broadcasts};
 }
 let activeFilter='all';
+let streamsOnly=false;
+function toggleStreamsOnly(checked){streamsOnly=checked;renderEventCards(allEvents);}
 function renderLeagueFilterPills(){
   const c=document.getElementById('league-filter-pills');const active=LEAGUES.filter(l=>CFG.activeLeagues.includes(l.id));
   c.innerHTML='<div class="lpill '+(activeFilter==='all'?'active':'')+'" onclick="setFilter(\'all\',this)">All ('+allEvents.length+')</div>'+active.map(l=>{const cnt=allEvents.filter(e=>e.league.id===l.id).length;return'<div class="lpill '+(activeFilter===l.id?'active':'')+'" onclick="setFilter(\''+l.id+'\',this)">'+l.icon+' '+l.name+(cnt?' <span style="opacity:.5">'+cnt+'</span>':'')+'</div>';}).join('');
@@ -1808,8 +1815,10 @@ function renderLeagueFilterPills(){
 function setFilter(id,el){activeFilter=id;document.querySelectorAll('.lpill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderEventCards(allEvents);}
 function filterEvents(){const q=v('event-search').toLowerCase();if(!q){renderEventCards(allEvents);return;}renderEventCards(allEvents.filter(ev=>(ev.type==='race'?ev.name+' '+ev.league.name:ev.home.name+' '+ev.away.name+' '+ev.league.name).toLowerCase().includes(q)));}
 function renderEventCards(events){
-  const grid=document.getElementById('events-grid');const filtered=activeFilter==='all'?events:events.filter(e=>e.league.id===activeFilter);
-  if(!filtered.length){grid.innerHTML='<div style="color:var(--muted2);grid-column:1/-1;padding:40px;text-align:center;opacity:.5">No events found.</div>';return;}
+  const grid=document.getElementById('events-grid');
+  let filtered=activeFilter==='all'?events:events.filter(e=>e.league.id===activeFilter);
+  if(streamsOnly)filtered=filtered.filter(e=>getChannelsForEvent(e).length>0);
+  if(!filtered.length){grid.innerHTML='<div style="color:var(--muted2);grid-column:1/-1;padding:40px;text-align:center;opacity:.5">'+(streamsOnly?'No events with streams found.':'No events found.')+'</div>';return;}
   grid.innerHTML=filtered.map(ev=>ev.type==='race'?renderRaceCard(ev):renderMatchCard(ev)).join('');
 }
 function renderMatchCard(ev){
