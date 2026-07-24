@@ -335,7 +335,7 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
   <div class="league-pills" id="league-filter-pills"></div>
   <div class="searchbar" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
     <input type="text" id="event-search" placeholder="Search events, teams, leagues…" oninput="filterEvents()" style="flex:1;min-width:200px">
-    <label class="toggle" style="display:flex;align-items:center;gap:8px;font-size:.78rem;white-space:nowrap;cursor:pointer">
+    <label class="toggle" style="display:flex;align-items:center;gap:8px;font-size:.78rem;white-space:nowrap;cursor:pointer" title="Includes matched channels, SportsOnline (prog.txt), DDKanqu, and Kafeizhibo. Run 🔄 Refresh Streams in Settings first for the fullest results.">
       <input type="checkbox" id="streams-only-toggle" onchange="toggleStreamsOnly(this.checked)"><div class="tslider"></div>📺 Streams only
     </label>
   </div>
@@ -1817,7 +1817,7 @@ function filterEvents(){const q=v('event-search').toLowerCase();if(!q){renderEve
 function renderEventCards(events){
   const grid=document.getElementById('events-grid');
   let filtered=activeFilter==='all'?events:events.filter(e=>e.league.id===activeFilter);
-  if(streamsOnly)filtered=filtered.filter(e=>getChannelsForEvent(e).length>0);
+  if(streamsOnly)filtered=filtered.filter(e=>hasAnyStreamSource(e));
   if(!filtered.length){grid.innerHTML='<div style="color:var(--muted2);grid-column:1/-1;padding:40px;text-align:center;opacity:.5">'+(streamsOnly?'No events with streams found.':'No events found.')+'</div>';return;}
   grid.innerHTML=filtered.map(ev=>ev.type==='race'?renderRaceCard(ev):renderMatchCard(ev)).join('');
 }
@@ -2507,6 +2507,22 @@ function getChannelsForEvent(ev){
   return findCHsForLeague(ev.league?.id||'').filter(c=>c.url).slice(0,2).map(c=>({id:c.id,url:c.url,type:'mora',channelName:c.name,verified:false}));
 }
 function getProgTxtStreamsForEvent(ev){if(ev.type==='race')return[];const key=pairKey(ev.home.name,ev.away.name);return externalStreamsMap[key]||[];}
+// Sync "does this event have ANY stream available" check — used by the
+// events-page "Streams only" filter. Covers the matched channel library,
+// SportsOnline (prog.txt), Kafeizhibo, and DDKanqu — using only data already
+// loaded/cached (mappings, home map, prior scrape cache) so it never triggers
+// a live scrape just to filter the grid. Run "🔄 Refresh Streams" in Settings
+// first if prog.txt/DDKanqu/Kafeizhibo data hasn't been loaded yet this session.
+function hasAnyStreamSource(ev){
+  if(getChannelsForEvent(ev).length)return true;
+  if(ev.type==='match'&&getKafeizhiboSourcesForEvent(ev).length)return true;
+  if(getProgTxtStreamsForEvent(ev).length)return true;
+  if(ev.type!=='race'){
+    const key=pairKey(ev.home.name,ev.away.name);
+    if(ddkanquMappings[key]||ddkanquHomeMap[key]||ddkanquCache[key])return true;
+  }
+  return false;
+}
 async function getAllStreamSourcesForEvent(ev){
   const sources=[...getChannelsForEvent(ev)];
   if(ev.type==='match'){
