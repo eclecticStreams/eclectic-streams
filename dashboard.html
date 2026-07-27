@@ -620,7 +620,7 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
   <div class="searchbar"><input type="text" id="ch-search" placeholder="Search channels…" oninput="filterChannels()"></div>
   <div class="card table-card" style="padding:0">
     <table class="ch-table">
-      <thead><tr><th>Channel</th><th>Sports / League Tags</th><th>Stream URL</th><th>Region</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Logo</th><th>Channel</th><th>Sports / League Tags</th><th>Stream URL</th><th>Region</th><th>Actions</th></tr></thead>
       <tbody id="ch-tbody"></tbody>
     </table>
   </div>
@@ -874,8 +874,12 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
 <div class="modal-overlay" id="modal-channel">
   <div class="modal">
     <div class="modal-head"><h3 id="modal-ch-title">Add Channel</h3><button class="close-btn" onclick="closeModal('modal-channel')">✕</button></div>
-    <div class="form-row"><div><label>Name</label><input type="text" id="ch-name"></div><div><label>Region</label><input type="text" id="ch-region"></div></div>
+    <div class="form-row"><div><label>Name</label><input type="text" id="ch-name" oninput="chLogoPreview()"></div><div><label>Region</label><input type="text" id="ch-region"></div></div>
     <div class="form-row"><div><label>Sport Tags</label><input type="text" id="ch-sport" placeholder="epl, ucl, f1…"></div><div><label>Stream URL</label><input type="text" id="ch-url"></div></div>
+    <div class="form-row">
+      <div><label>Logo URL <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted2)">(optional — leave blank to auto-detect)</span></label><input type="text" id="ch-logo" placeholder="https://…" oninput="chLogoPreview()"></div>
+      <div><label>Preview</label><div style="display:flex;align-items:center;gap:8px;height:38px"><div id="ch-logo-chip" class="logo-chip"></div><span id="ch-logo-src" style="font-size:.65rem;color:var(--muted2);font-family:var(--cond)"></span></div></div>
+    </div>
     <div style="display:flex;gap:7px;margin-top:8px"><button class="btn-red" onclick="saveChannel()">Save</button><button class="btn-ghost" onclick="closeModal('modal-channel')">Cancel</button></div>
   </div>
 </div>
@@ -1029,7 +1033,7 @@ function esDashLoadChannels(){
     const d=snap.val();
     channels=Object.keys(d).map(function(k){
       const c=d[k];
-      return {id:k,name:c.name||'',region:c.region||'',sport:c.sport||c.tags||'',url:c.url||'',active:c.active!==false};
+      return {id:k,name:c.name||'',region:c.region||'',sport:c.sport||c.tags||'',url:c.url||'',logo:c.logo||'',active:c.active!==false};
     });
     renderChannels();
     if(status && !esFbUser)status.textContent='👁️ Read-only — '+channels.length+' channel(s) loaded from Firebase';
@@ -2287,15 +2291,23 @@ async function postHighlights(){
 }
 
 // ═══ CHANNELS ═══
-function renderChannels(filter=''){const tbody=document.getElementById('ch-tbody');const list=filter?channels.filter(c=>[c.name,c.sport,c.region].some(f=>f.toLowerCase().includes(filter))):channels;tbody.innerHTML=list.map(c=>'<tr><td><strong style="font-family:var(--cond)">'+c.name+'</strong></td><td>'+c.sport.split(',').map(s=>'<span class="sport-tag">'+s.trim()+'</span>').join('')+'</td><td>'+(c.url?'<a href="'+c.url+'" target="_blank" style="font-size:.7rem;color:var(--blue)">'+c.url.substring(0,36)+'…</a>':'<span style="color:var(--muted2)">—</span>')+'</td><td><span style="background:var(--bg3);padding:2px 7px;border-radius:5px;font-size:.68rem;font-family:var(--cond);font-weight:700">'+c.region+'</span></td><td style="display:flex;gap:5px"><button class="btn-ghost btn-sm" onclick="editCH(\''+c.id+'\')">✏️</button><button class="btn-sm" style="background:#3d0c0c;color:#fff;padding:4px 8px" onclick="deleteCH(\''+c.id+'\')">✕</button></td></tr>').join('')||'<tr><td colspan="5" style="text-align:center;color:var(--muted2);padding:20px">No channels.</td></tr>';}
+function renderChannels(filter=''){const tbody=document.getElementById('ch-tbody');const list=filter?channels.filter(c=>[c.name,c.sport,c.region].some(f=>f.toLowerCase().includes(filter))):channels;tbody.innerHTML=list.map(c=>'<tr><td><div class="logo-chip" style="width:30px;height:30px"><img src="'+getChannelLogo(c)+'" onerror="this.src=\''+chFallbackLogo(c.name)+'\'" alt=""></div></td><td><strong style="font-family:var(--cond)">'+c.name+'</strong></td><td>'+c.sport.split(',').map(s=>'<span class="sport-tag">'+s.trim()+'</span>').join('')+'</td><td>'+(c.url?'<a href="'+c.url+'" target="_blank" style="font-size:.7rem;color:var(--blue)">'+c.url.substring(0,36)+'…</a>':'<span style="color:var(--muted2)">—</span>')+'</td><td><span style="background:var(--bg3);padding:2px 7px;border-radius:5px;font-size:.68rem;font-family:var(--cond);font-weight:700">'+c.region+'</span></td><td style="display:flex;gap:5px"><button class="btn-ghost btn-sm" onclick="editCH(\''+c.id+'\')">✏️</button><button class="btn-sm" style="background:#3d0c0c;color:#fff;padding:4px 8px" onclick="deleteCH(\''+c.id+'\')">✕</button></td></tr>').join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:20px">No channels.</td></tr>';}
 function filterChannels(){renderChannels(document.getElementById('ch-search').value.toLowerCase());}
-function openAddChannel(){editingCH=null;document.getElementById('modal-ch-title').textContent='Add Channel';['ch-name','ch-region','ch-sport','ch-url'].forEach(id=>set(id,''));openModal('modal-channel');}
-function editCH(id){const c=channels.find(x=>x.id===id);if(!c)return;editingCH=id;document.getElementById('modal-ch-title').textContent='Edit Channel';set('ch-name',c.name);set('ch-region',c.region);set('ch-sport',c.sport);set('ch-url',c.url);openModal('modal-channel');}
+function chLogoPreview(){
+  const name=v('ch-name'),manual=v('ch-logo');
+  const url=manual||getChannelLogo({name});
+  const chip=document.getElementById('ch-logo-chip');
+  if(chip)chip.innerHTML='<img src="'+url+'" onerror="this.src=\''+chFallbackLogo(name)+'\'" alt="">';
+  const src=document.getElementById('ch-logo-src');
+  if(src)src.textContent=manual?'manual':(esGetChannelLogoFamily(name)?'auto-detected':'fallback');
+}
+function openAddChannel(){editingCH=null;document.getElementById('modal-ch-title').textContent='Add Channel';['ch-name','ch-region','ch-sport','ch-url','ch-logo'].forEach(id=>set(id,''));openModal('modal-channel');chLogoPreview();}
+function editCH(id){const c=channels.find(x=>x.id===id);if(!c)return;editingCH=id;document.getElementById('modal-ch-title').textContent='Edit Channel';set('ch-name',c.name);set('ch-region',c.region);set('ch-sport',c.sport);set('ch-url',c.url);set('ch-logo',c.logo||'');openModal('modal-channel');chLogoPreview();}
 function saveChannel(){
   const name=v('ch-name');
   if(!name){toast('Name required','e');return;}
   if(!esFbUser||esFbUser.uid!==ES_ADMIN_UID){toast('Sign in as admin to save channels','e');return;}
-  const obj={name,region:v('ch-region'),sport:v('ch-sport'),url:v('ch-url'),active:true,updatedAt:Date.now()};
+  const obj={name,region:v('ch-region'),sport:v('ch-sport'),url:v('ch-url'),logo:v('ch-logo'),active:true,updatedAt:Date.now()};
   if(editingCH){
     esRtdb.ref('livetv/channels/'+editingCH).update(obj)
       .then(()=>{closeModal('modal-channel');toast('Channel saved ✓','s');})
@@ -2467,6 +2479,39 @@ const ES_BROADCASTER_FAMILIES={
 function esNormalizeName(raw){let s=String(raw||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();Object.entries(ES_ABBREV_MAP).forEach(([a,f])=>{if(s===a||s.startsWith(a+' ')||s.endsWith(' '+a))s=s.replace(a,f);});return s;}
 function esTokenize(s){return esNormalizeName(s).split(' ').filter(t=>t.length>1);}
 function esGetBroadcasterFamily(name){const n=esNormalizeName(name);for(const[fam,members]of Object.entries(ES_BROADCASTER_FAMILIES)){if(members.some(m=>n.includes(m)||m.includes(n)))return fam;}return null;}
+
+// ═══ CHANNEL LOGOS ═══
+// ESPN/SofaScore broadcast data only ever gives a text network name (e.g. "Sky Sports"),
+// never a logo image — there's no live "fetch the logo" endpoint on either source.
+// So "auto-fetch" here means: recognize the broadcaster family (reusing the same
+// fuzzy/family matching already used for stream matching above) and resolve a logo
+// from its official domain via Clearbit's logo API. Falls back to an initials avatar
+// (same ui-avatars.com service used for team crests) if nothing matches.
+const CHANNEL_LOGO_DOMAINS={
+  sky:'skysports.com',espn:'espn.com',bein:'beinsports.com',fox:'foxsports.com',
+  nbc:'nbcsports.com',cbs:'cbssports.com',dazn:'dazn.com',bt:'tntsports.co.uk',
+  tnt:'tntsports.co.uk',amazon:'primevideo.com',fubo:'fubo.tv',ziggo:'ziggosport.nl',
+  supersport:'supersport.com'
+};
+// Eurosport has no broadcast-matching family yet (ships as a DEFAULT_CHANNELS entry
+// but ES_BROADCASTER_FAMILIES never defined one) — added here so its logo auto-resolves too.
+const CHANNEL_LOGO_EXTRA_FAMILY_NAMES=['eurosport'];
+CHANNEL_LOGO_DOMAINS.eurosport='eurosport.com';
+function esGetChannelLogoFamily(name){
+  const fam=esGetBroadcasterFamily(name);
+  if(fam)return fam;
+  const n=esNormalizeName(name);
+  for(const extra of CHANNEL_LOGO_EXTRA_FAMILY_NAMES){if(n.includes(extra))return extra;}
+  return null;
+}
+function chFallbackLogo(name){return'https://ui-avatars.com/api/?name='+encodeURIComponent((name||'?').substring(0,2))+'&size=128&background=1a1a1a&color=e53935&bold=true&rounded=true';}
+// Priority: manual override (channel.logo) → auto-detected broadcaster family logo → initials fallback.
+function getChannelLogo(channel){
+  if(channel&&channel.logo)return channel.logo;
+  const fam=esGetChannelLogoFamily(channel&&channel.name);
+  if(fam&&CHANNEL_LOGO_DOMAINS[fam])return'https://logo.clearbit.com/'+CHANNEL_LOGO_DOMAINS[fam];
+  return chFallbackLogo(channel&&channel.name);
+}
 function esFuzzyChannelScore(broadcastName,fbChannelName){
   const bn=esNormalizeName(broadcastName),fn=esNormalizeName(fbChannelName);
   if(!bn||!fn)return 0;
