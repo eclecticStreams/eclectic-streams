@@ -968,13 +968,50 @@ let esRtdb=null,esFbUser=null;
 const ES_BLOG_BASE='https://www.eclecticstreams.com.ng';
 function buildESChannelLink(channelId){return ES_BLOG_BASE+'/?channel='+encodeURIComponent(channelId);}
 
-// ═══ Shared "Post URL" sync — writes the real Blogger permalink back to the
-// match record in Firebase (esconfig/todaysMatches) so index.html's match
-// cards link to the actual post instead of a guessed slug ═══
+// ═══ Shared "Post URL" sync — writes the FULL match card record back to
+// esconfig/todaysMatches so a Dashboard bulk-post/quick-post automatically
+// shows up as a complete card (same schema index.html's Match Card Generator
+// writes) — no manual push from index.html required. Uses .update() (merge)
+// so it won't clobber fields written by the other tool. ═══
 const ES_MATCH_PATH='esconfig/todaysMatches';
-function syncPostUrlToFirebase(evId,url){
-  if(!esRtdb||!evId||!url)return;
-  esRtdb.ref(ES_MATCH_PATH+'/match_'+evId).update({postUrl:url}).catch(function(){});
+const STATUS_LABEL_TO_TYPE={
+  'Scheduled':'STATUS_SCHEDULED','Pre-Game':'STATUS_SCHEDULED','TBD':'STATUS_SCHEDULED',
+  'In Progress':'STATUS_IN_PROGRESS','1st Half':'STATUS_IN_PROGRESS','2nd Half':'STATUS_IN_PROGRESS','Live':'STATUS_IN_PROGRESS',
+  'Halftime':'STATUS_HALFTIME','HT':'STATUS_HALFTIME',
+  'Final':'STATUS_FINAL','Full Time':'STATUS_FINAL','FT':'STATUS_FINAL','Completed':'STATUS_FINAL',
+  'Postponed':'STATUS_POSTPONED','Canceled':'STATUS_CANCELED','Cancelled':'STATUS_CANCELED',
+  'Suspended':'STATUS_SUSPENDED','Delayed':'STATUS_DELAYED','Abandoned':'STATUS_CANCELED'
+};
+function mapStatusTypeAF(label){return STATUS_LABEL_TO_TYPE[label]||'STATUS_SCHEDULED';}
+function syncPostUrlToFirebase(ev,url){
+  if(!esRtdb||!ev?.id)return;
+  try{
+    const isRace=ev.type==='race';
+    const ch=isRace?null:(getChannelsForEvent(ev)[0]||null);
+    const record={
+      id:String(ev.id),
+      kickoff:ev.startTime?ev.startTime.toISOString():'',
+      sport:isRace?'motorsport':(ev.league?.sport||'football'),
+      isRacing:isRace,
+      homeName:isRace?(ev.name||''):(ev.home?.name||''),
+      homeLogo:isRace?'':(ev.home?.logo||''),
+      awayName:isRace?(ev.venue||''):(ev.away?.name||''),
+      awayLogo:isRace?'':(ev.away?.logo||''),
+      score:!isRace&&ev.home?.score!==''&&ev.away?.score!==''?ev.home.score+' - '+ev.away.score:'',
+      scoreHome:isRace?'':(ev.home?.score??''),
+      scoreAway:isRace?'':(ev.away?.score??''),
+      statusType:mapStatusTypeAF(ev.status),
+      leagueName:ev.league?.name||'',
+      leagueEmoji:ev.league?.icon||'',
+      leagueId:ev.league?.id||'',
+      postUrl:url||'',
+      channelKey:ch?ch.id:'',
+      channelName:ch?ch.channelName:'',
+      venue:ev.venue||'',
+      updatedAt:Date.now()
+    };
+    esRtdb.ref(ES_MATCH_PATH+'/match_'+ev.id).update(record).catch(function(){});
+  }catch(e){/* non-fatal — post already succeeded regardless of card sync */}
 }
 function getWatchLinkForEvent(ev){
   try{
@@ -1955,7 +1992,7 @@ function renderRaceCard(ev){
 // ═══ PER-EVENT ACTIONS ═══
 function findEv(sid){const id=decodeURIComponent(String(sid));return allEvents.find(e=>String(e.id)===id)||allEvents.find(e=>String(e.id)===String(sid))||null;}
 function getLog(ev){return postLog[evKey(ev)]||null;}
-function setLog(ev,data){postLog[evKey(ev)]={...(postLog[evKey(ev)]||{}),...data,ts:Date.now()};saveAll();updateStats();if(data.postUrl&&ev?.id)syncPostUrlToFirebase(ev.id,data.postUrl);}
+function setLog(ev,data){postLog[evKey(ev)]={...(postLog[evKey(ev)]||{}),...data,ts:Date.now()};saveAll();updateStats();if(data.postUrl&&ev?.id)syncPostUrlToFirebase(ev,data.postUrl);}
 function evKey(ev){return ev.league.id+'|'+(ev.home?.name||ev.name||'').replace(/\s/g,'_')+'|'+(ev.away?.name||'').replace(/\s/g,'_');}
 async function genAndFill(sid){
   const ev=findEv(sid);if(!ev){toast('Event not found','e');return;}
@@ -2109,15 +2146,9 @@ async function quickPostEv(sid){
 }
 async function bulkPostAll(){
   if(!accessToken){toast('Sign in first','e');return;}
-  let toPost;
-  if(selectedEventIds.size){
-    toPost=allEvents.filter(ev=>selectedEventIds.has(String(ev.id))&&!getLog(ev)?.postId);
-    if(!toPost.length){toast('Selected events are already posted','i');return;}
-  }else{
-    toPost=allEvents.filter(ev=>!getLog(ev)?.postId);
-    if(!toPost.length){toast('All events already posted','i');return;}
-    if(!confirm('No events selected — this will bulk post ALL '+toPost.length+' unposted events (can trigger Blogger rate limits). Continue?'))return;
-  }
+  if(!selectedEventIds.size){toast('Select events first — tick individual cards or use "Select filtered/visible"','e');return;}
+  const toPost=allEvents.filter(ev=>selectedEventIds.has(String(ev.id))&&!getLog(ev)?.postId);
+  if(!toPost.length){toast('Selected events are already posted','i');return;}
   toast('Bulk posting '+toPost.length+' events…','i');
   for(const ev of toPost){await quickPostEv(encodeURIComponent(String(ev.id)));await new Promise(r=>setTimeout(r,1200));}
   toast('Bulk post complete ✓','s');
