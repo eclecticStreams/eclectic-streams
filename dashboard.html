@@ -327,6 +327,13 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
     <div style="font-family:var(--cond);font-size:1.4rem;font-weight:900;text-transform:uppercase">Live <span style="color:var(--red)">Events</span></div>
     <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
       <input type="date" id="target-date" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 9px;font-size:.75rem;width:140px">
+      <select id="date-range-days" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 9px;font-size:.75rem" title="Fetch this many days starting from the date above">
+        <option value="1">1 day</option>
+        <option value="2">2 days</option>
+        <option value="3">3 days</option>
+        <option value="5">5 days</option>
+        <option value="7">7 days</option>
+      </select>
       <button class="btn-red" onclick="fetchAllEvents()"><span id="fetch-spinner" style="display:none" class="spinner"></span>🔄 Fetch All</button>
       <button class="btn-gold" onclick="bulkGenThumbs()">🖼️ Bulk Gen Thumbs</button>
       <button class="btn-green" id="bulk-post-btn" onclick="bulkPostAll()">📤 Bulk Post</button>
@@ -741,9 +748,10 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
     <div style="font-family:var(--cond);font-size:1.4rem;font-weight:900;text-transform:uppercase">Post <span style="color:var(--red)">Log</span></div>
     <button class="btn-ghost btn-sm" onclick="renderPostLog()">🔄 Refresh</button>
   </div>
+  <input type="text" id="log-search" placeholder="Search by title or league…" oninput="renderPostLog()" style="width:100%;margin-bottom:10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:.8rem">
   <div class="card table-card" style="padding:0">
     <table class="log-table">
-      <thead><tr><th>Title</th><th>League</th><th>Thumb</th><th>Status</th><th>HL</th><th>Posted</th><th>Link</th></tr></thead>
+      <thead><tr><th>Title</th><th>League</th><th>Thumb</th><th>Status</th><th>HL</th><th>Posted</th><th>Link</th><th></th></tr></thead>
       <tbody id="log-tbody"></tbody>
     </table>
   </div>
@@ -876,6 +884,17 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
     <div class="modal-head"><h3>Post Preview</h3><button class="close-btn" onclick="closeModal('modal-preview')">✕</button></div>
     <div id="preview-title" style="font-size:1.1rem;font-weight:800;margin-bottom:12px;font-family:var(--cond)"></div>
     <div id="preview-body" style="font-size:.82rem;line-height:1.75;color:var(--muted2)"></div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-bulk-preview">
+  <div class="modal" style="max-width:640px;max-height:82vh;display:flex;flex-direction:column">
+    <div class="modal-head"><h3>Bulk Post Preview <span style="color:var(--muted2);font-weight:400" id="bulk-preview-count-wrap">(<span id="bulk-preview-count">0</span> events)</span></h3><button class="close-btn" onclick="cancelBulkPost()">✕</button></div>
+    <div style="font-size:.72rem;color:var(--muted2);margin-bottom:10px">Review generated titles + thumbnails before anything goes live. Remove any you don't want, then confirm.</div>
+    <div id="bulk-preview-list" style="overflow-y:auto;flex:1;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-blue" onclick="confirmBulkPost()">✓ Confirm &amp; Post All</button>
+      <button class="btn-ghost" onclick="cancelBulkPost()">Cancel</button>
+    </div>
   </div>
 </div>
 <div class="modal-overlay" id="modal-channel">
@@ -1832,34 +1851,39 @@ async function bulkGenThumbs(){
 }
 
 // ═══ EVENT FETCH ═══
+function dateAddDays(dateStr,n){const d=dateStr?new Date(dateStr+'T00:00:00'):new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
 async function fetchAllEvents(){
   document.getElementById('fetch-spinner').style.display='inline-block';
   allEvents=[];const active=LEAGUES.filter(l=>CFG.activeLeagues.includes(l.id));
-  toast('Fetching '+active.length+' leagues…','i');
-  const results=await Promise.allSettled(active.map(l=>fetchLeague(l)));
-  results.forEach(r=>{if(r.status==='fulfilled')allEvents.push(...r.value);});
-  if(CFG.useApiFootball&&CFG.apiFootballKey){
-    toast('Fetching API-Football fixtures…','i');
-    const td=v('target-date');
-    const dateISO=td||new Date().toISOString().slice(0,10);
-    const afEvents=await fetchApiFootballFixturesDash(dateISO);
-    let afAdded=0;
-    afEvents.forEach(fe=>{
-      const dup=allEvents.some(ev=>sameFixtureAF(ev,fe.home.name,fe.away.name,fe.startTime));
-      if(!dup){allEvents.push(fe);afAdded++;}
-    });
-    if(afAdded)toast('+'+afAdded+' from API-Football','s');
+  const baseDate=v('target-date')||new Date().toISOString().slice(0,10);
+  const days=Math.max(1,parseInt(v('date-range-days')||'1',10));
+  const dateList=Array.from({length:days},(_,i)=>dateAddDays(baseDate,i));
+  toast('Fetching '+active.length+' leagues across '+days+' day'+(days>1?'s':'')+'…','i');
+  for(const dateISO of dateList){
+    const dateYMD=dateISO.replace(/-/g,'');
+    const results=await Promise.allSettled(active.map(l=>fetchLeague(l,dateYMD)));
+    results.forEach(r=>{if(r.status==='fulfilled')r.value.forEach(ev=>{ev.dateKey=dateISO;allEvents.push(ev);});});
+    if(CFG.useApiFootball&&CFG.apiFootballKey){
+      const afEvents=await fetchApiFootballFixturesDash(dateISO);
+      let afAdded=0;
+      afEvents.forEach(fe=>{
+        fe.dateKey=dateISO;
+        const dup=allEvents.some(ev=>ev.dateKey===dateISO&&sameFixtureAF(ev,fe.home.name,fe.away.name,fe.startTime));
+        if(!dup){allEvents.push(fe);afAdded++;}
+      });
+      if(afAdded)toast('+'+afAdded+' from API-Football ('+dateISO+')','i');
+    }
   }
   document.getElementById('fetch-spinner').style.display='none';
   toast('Resolving logos via TheSportsDB…','i');
   await enrichLogos(allEvents);
   document.getElementById('st-events').textContent=allEvents.length;
   renderLeagueFilterPills();renderEventCards(allEvents);updateSchedQueue();populateHLSelect();
-  toast('✓ '+allEvents.length+' events loaded','s');
+  toast('✓ '+allEvents.length+' events loaded across '+days+' day'+(days>1?'s':''),'s');
   if(CFG.autoFetchStreams){toast('Loading external streams…','i');await loadExternalStreams();ddkanquMappings=parseDDKMappings(CFG.ddkanquMappingsRaw);}
 }
-async function fetchLeague(league){
-  try{const td=v('target-date');const dp=td?'?dates='+td.replace(/-/g,''):'';const res=await fetch(ESPN+'/'+league.sport+'/'+league.slug+'/scoreboard'+dp);if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();return(data.events||[]).map(ev=>parseESPN(ev,league));}
+async function fetchLeague(league,dateYMD){
+  try{const dp=dateYMD?'?dates='+dateYMD:(function(){const td=v('target-date');return td?'?dates='+td.replace(/-/g,''):'';})();const res=await fetch(ESPN+'/'+league.sport+'/'+league.slug+'/scoreboard'+dp);if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();return(data.events||[]).map(ev=>parseESPN(ev,league));}
   catch(e){console.warn('[Fetch] '+league.name+':',e.message);return[];}
 }
 function parseESPN(ev,league){
@@ -1963,6 +1987,17 @@ function renderEventCards(events){
   let filtered=activeFilter==='all'?events:events.filter(e=>e.league.id===activeFilter);
   if(streamsOnly)filtered=filtered.filter(e=>hasAnyStreamSource(e));
   if(!filtered.length){grid.innerHTML='<div style="color:var(--muted2);grid-column:1/-1;padding:40px;text-align:center;opacity:.5">'+(streamsOnly?'No events with streams found.':'No events found.')+'</div>';return;}
+  const dayKeys=[...new Set(filtered.map(e=>e.dateKey).filter(Boolean))];
+  if(dayKeys.length>1){
+    dayKeys.sort();
+    grid.innerHTML=dayKeys.map(dk=>{
+      const dayLabel=new Date(dk+'T00:00:00').toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});
+      const dayEvents=filtered.filter(e=>e.dateKey===dk);
+      return'<div style="grid-column:1/-1;font-family:var(--cond);font-weight:800;text-transform:uppercase;font-size:.85rem;color:var(--muted2);border-bottom:1px solid var(--border);padding:10px 2px 6px;margin-top:6px">📅 '+dayLabel+' <span style="color:var(--muted2);font-weight:400;text-transform:none">('+dayEvents.length+')</span></div>'
+        +dayEvents.map(ev=>ev.type==='race'?renderRaceCard(ev):renderMatchCard(ev)).join('');
+    }).join('');
+    return;
+  }
   grid.innerHTML=filtered.map(ev=>ev.type==='race'?renderRaceCard(ev):renderMatchCard(ev)).join('');
 }
 function renderMatchCard(ev){
@@ -1977,7 +2012,7 @@ function renderMatchCard(ev){
   const hChip='<div class="logo-chip"><img src="'+(hLogo?'https://wsrv.nl/?url='+encodeURIComponent(hLogo)+'&w=80&h=80&fit=contain&n=-1&we':fbLogo(ev.home.name))+'" onerror="this.src=\''+fbLogo(ev.home.name)+'\'" alt="'+ev.home.name+'" style="width:100%;height:100%;object-fit:contain"></div>';
   const aChip='<div class="logo-chip"><img src="'+(aLogo?'https://wsrv.nl/?url='+encodeURIComponent(aLogo)+'&w=80&h=80&fit=contain&n=-1&we':fbLogo(ev.away.name))+'" onerror="this.src=\''+fbLogo(ev.away.name)+'\'" alt="'+ev.away.name+'" style="width:100%;height:100%;object-fit:contain"></div>';
   const selChk='<label onclick="event.stopPropagation()" style="display:flex;align-items:center;cursor:pointer;margin-right:2px"><input type="checkbox" '+(selectedEventIds.has(String(ev.id))?'checked':'')+' onchange="toggleEventSelect(\''+sid+'\')" style="width:14px;height:14px;cursor:pointer"></label>';
-  return'<div class="event-card '+(pl?.thumb?'has-thumb':'')+' '+(pl?.postId?'posted':'')+'" data-id="'+ev.id+'"><div class="ec-top"><span style="display:flex;align-items:center;gap:6px">'+selChk+'<span class="ec-league">'+ev.league.icon+' '+ev.league.name+'</span></span><div style="display:flex;align-items:center;gap:4px">'+afBadge+thumbBadge+badge+'<span class="ec-status '+sc+'">'+ev.status+'</span></div></div><div class="ec-match"><div class="ec-team">'+hChip+'<div class="ec-team-name">'+ev.home.name+'</div></div><div style="display:flex;flex-direction:column;align-items:center"><div class="ec-vs">'+(ev.home.score!==''?ev.home.score+' – '+ev.away.score:'vs')+'</div><div class="ec-time">'+ts+'</div></div><div class="ec-team">'+aChip+'<div class="ec-team-name">'+ev.away.name+'</div></div></div>'+(pl?.postUrl?'<div style="font-size:.62rem;color:var(--muted2)">📝 <a href="'+pl.postUrl+'" target="_blank" style="color:var(--blue)">View post</a></div>':'')+'<div class="ec-actions"><button class="btn-red btn-sm" onclick="genAndFill(\''+sid+'\')">✍️ Gen</button><button class="btn-blue btn-sm" onclick="quickPostEv(\''+sid+'\')">📤 Post</button><button class="btn-gold btn-sm" onclick="genThumbForEv(\''+sid+'\')">🖼️ Thumb</button><button class="btn-orange btn-sm" onclick="openHLForEv(\''+sid+'\')" title="Post Highlights / Update">🎬 HL</button></div></div>';
+  return'<div class="event-card '+(pl?.thumb?'has-thumb':'')+' '+(pl?.postId?'posted':'')+'" data-id="'+ev.id+'"><div class="ec-top"><span style="display:flex;align-items:center;gap:6px">'+selChk+'<span class="ec-league">'+ev.league.icon+' '+ev.league.name+'</span></span><div style="display:flex;align-items:center;gap:4px">'+afBadge+thumbBadge+badge+'<span class="ec-status '+sc+'">'+ev.status+'</span></div></div><div class="ec-match"><div class="ec-team">'+hChip+'<div class="ec-team-name">'+ev.home.name+'</div></div><div style="display:flex;flex-direction:column;align-items:center"><div class="ec-vs">'+(ev.home.score!==''?ev.home.score+' – '+ev.away.score:'vs')+'</div><div class="ec-time">'+ts+'</div></div><div class="ec-team">'+aChip+'<div class="ec-team-name">'+ev.away.name+'</div></div></div>'+(pl?.postUrl?'<div style="font-size:.62rem;color:var(--muted2)">📝 <a href="'+pl.postUrl+'" target="_blank" style="color:var(--blue)">View post</a></div>':'')+'<div class="ec-actions"><button class="btn-red btn-sm" onclick="genAndFill(\''+sid+'\')">✍️ Gen</button><button class="btn-blue btn-sm" onclick="quickPostEv(\''+sid+'\')">📤 Post</button><button class="btn-gold btn-sm" onclick="genThumbForEv(\''+sid+'\')">🖼️ Thumb</button><button class="btn-orange btn-sm" onclick="openHLForEv(\''+sid+'\')" title="Post Highlights / Update">🎬 HL</button>'+(pl?.postId?'<button class="btn-sm" style="background:#3d0c0c;color:#fff" onclick="unpublishEntry(\''+encodeURIComponent(evKey(ev))+'\')" title="Delete this post from Blogger">🗑 Unpublish</button>':'')+'</div></div>';
 }
 function renderRaceCard(ev){
   const ts=ev.startTime?ev.startTime.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'TBD';
@@ -1986,13 +2021,29 @@ function renderRaceCard(ev){
   const badge=pl?'<span class="post-badge '+(pl.status||'draft').toLowerCase()+'">'+(pl.status||'draft')+'</span>':'';
   const thumbBadge=pl?.thumb?'<span class="thumb-badge">🖼️ Thumb</span>':'';
   const selChk='<label onclick="event.stopPropagation()" style="display:flex;align-items:center;cursor:pointer;margin-right:2px"><input type="checkbox" '+(selectedEventIds.has(String(ev.id))?'checked':'')+' onchange="toggleEventSelect(\''+sid+'\')" style="width:14px;height:14px;cursor:pointer"></label>';
-  return'<div class="event-card '+(pl?.thumb?'has-thumb':'')+' '+(pl?.postId?'posted':'')+'" data-id="'+ev.id+'"><div class="ec-top"><span style="display:flex;align-items:center;gap:6px">'+selChk+'<span class="ec-league">'+ev.league.icon+' '+ev.league.name+'</span></span><div style="display:flex;gap:4px">'+thumbBadge+badge+'<span class="ec-status '+sc+'">'+ev.status+'</span></div></div><div style="font-family:var(--cond);font-size:.92rem;font-weight:800;text-transform:uppercase">'+ev.name+'</div>'+(ev.venue?'<div style="font-size:.68rem;color:var(--muted2)">🏟 '+ev.venue+(ev.location?', '+ev.location:'')+'</div>':'')+'<div class="ec-time">🕐 '+ts+'</div>'+(pl?.postUrl?'<div style="font-size:.62rem;color:var(--muted2)">📝 <a href="'+pl.postUrl+'" target="_blank" style="color:var(--blue)">View</a></div>':'')+'<div class="ec-actions"><button class="btn-red btn-sm" onclick="genAndFill(\''+sid+'\')">✍️ Gen</button><button class="btn-blue btn-sm" onclick="quickPostEv(\''+sid+'\')">📤 Post</button><button class="btn-gold btn-sm" onclick="genThumbForEv(\''+sid+'\')">🖼️ Thumb</button></div></div>';
+  return'<div class="event-card '+(pl?.thumb?'has-thumb':'')+' '+(pl?.postId?'posted':'')+'" data-id="'+ev.id+'"><div class="ec-top"><span style="display:flex;align-items:center;gap:6px">'+selChk+'<span class="ec-league">'+ev.league.icon+' '+ev.league.name+'</span></span><div style="display:flex;gap:4px">'+thumbBadge+badge+'<span class="ec-status '+sc+'">'+ev.status+'</span></div></div><div style="font-family:var(--cond);font-size:.92rem;font-weight:800;text-transform:uppercase">'+ev.name+'</div>'+(ev.venue?'<div style="font-size:.68rem;color:var(--muted2)">🏟 '+ev.venue+(ev.location?', '+ev.location:'')+'</div>':'')+'<div class="ec-time">🕐 '+ts+'</div>'+(pl?.postUrl?'<div style="font-size:.62rem;color:var(--muted2)">📝 <a href="'+pl.postUrl+'" target="_blank" style="color:var(--blue)">View</a></div>':'')+'<div class="ec-actions"><button class="btn-red btn-sm" onclick="genAndFill(\''+sid+'\')">✍️ Gen</button><button class="btn-blue btn-sm" onclick="quickPostEv(\''+sid+'\')">📤 Post</button><button class="btn-gold btn-sm" onclick="genThumbForEv(\''+sid+'\')">🖼️ Thumb</button>'+(pl?.postId?'<button class="btn-sm" style="background:#3d0c0c;color:#fff" onclick="unpublishEntry(\''+encodeURIComponent(evKey(ev))+'\')" title="Delete this post from Blogger">🗑 Unpublish</button>':'')+'</div></div>';
 }
 
 // ═══ PER-EVENT ACTIONS ═══
 function findEv(sid){const id=decodeURIComponent(String(sid));return allEvents.find(e=>String(e.id)===id)||allEvents.find(e=>String(e.id)===String(sid))||null;}
 function getLog(ev){return postLog[evKey(ev)]||null;}
-function setLog(ev,data){postLog[evKey(ev)]={...(postLog[evKey(ev)]||{}),...data,ts:Date.now()};saveAll();updateStats();if(data.postUrl&&ev?.id)syncPostUrlToFirebase(ev,data.postUrl);}
+async function unpublishEntry(rawKey){
+  const key=decodeURIComponent(rawKey);
+  const entry=postLog[key];
+  if(!entry){toast('Log entry not found','e');return;}
+  if(!entry.postId){toast('No Blogger post ID stored for this entry — nothing to delete remotely','e');delete postLog[key];saveAll();renderPostLog();renderEventCards(allEvents);return;}
+  if(!confirm('Unpublish "'+(entry.title||'this post')+'" from Blogger?\n\nThis permanently deletes the live/draft post. This cannot be undone.'))return;
+  if(!accessToken){toast('Sign in first','e');return;}
+  try{
+    const res=await fetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+entry.postId,{method:'DELETE',headers:{'Authorization':'Bearer '+accessToken}});
+    if(!res.ok&&res.status!==404)throw new Error('Blogger DELETE '+res.status+': '+await res.text());
+    delete postLog[key];saveAll();updateStats();renderPostLog();renderEventCards(allEvents);
+    if(entry.evId!==undefined&&esRtdb)esRtdb.ref(ES_MATCH_PATH+'/match_'+entry.evId).update({postUrl:''}).catch(function(){});
+    toast('Post unpublished ✓','s');
+  }catch(e){toast('Unpublish failed: '+e.message,'e');}
+}
+function unpublishEv(ev){unpublishEntry(evKey(ev));}
+function setLog(ev,data){postLog[evKey(ev)]={...(postLog[evKey(ev)]||{}),...data,evId:ev?.id!==undefined?ev.id:(postLog[evKey(ev)]||{}).evId,ts:Date.now()};saveAll();updateStats();if(data.postUrl&&ev?.id)syncPostUrlToFirebase(ev,data.postUrl);}
 function evKey(ev){return ev.league.id+'|'+(ev.home?.name||ev.name||'').replace(/\s/g,'_')+'|'+(ev.away?.name||'').replace(/\s/g,'_');}
 async function genAndFill(sid){
   const ev=findEv(sid);if(!ev){toast('Event not found','e');return;}
@@ -2144,15 +2195,72 @@ async function quickPostEv(sid){
   const post=await postRaw(title,html,schedMode,labels,publishDate);
   if(post){setLog(ev,{postId:post.id,postUrl:post.url,status:schedMode,title,league:ev.league.name,scheduledFor:publishDate||null});renderEventCards(allEvents);addRecentPost(title,post.url,schedMode);toast(publishDate?'Scheduled for '+new Date(publishDate).toLocaleTimeString()+' ✓':'Posted ✓','s');}
 }
+let bulkPreviewQueue=[];
+async function generatePostContent(ev){
+  const title=ev.type==='race'?ev.name+' – Race Preview & Live Stream | Eclectic Streams':ev.home.name+' vs '+ev.away.name+' – '+ev.league.name+' Live Stream | Eclectic Streams';
+  const body=await buildArticleWithStreams(title,ev);
+  const labels=getLabels(ev);
+  const dt=ev.startTime?ev.startTime.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+  const cv=document.createElement('canvas');setCanvasSize(cv,'1920','16:9');
+  try{
+    if(ev.type==='race')await drawRaceThumbnail(cv,{name:ev.name,league:ev.league.name,datetime:dt,venue:ev.venue||'',bg1:'#0a0e1a',bg2:'#1a0a00',bannerUrl:getRaceImg(ev)});
+    else await drawMatchThumbnail(cv,{home:ev.home.name,away:ev.away.name,hLogo:ev.home.logo||'',aLogo:ev.away.logo||'',league:ev.league.name,datetime:dt,bg1:'#0d1b2a',bg2:'#1a0020',mode:'preview'});
+  }catch(e){}
+  let publishDate=null;const schedMode=CFG.schedStatus||'DRAFT';
+  if(ev.startTime&&schedMode==='LIVE'){const offsetMs=(CFG.schedTiming||60)*60*1000;publishDate=new Date(ev.startTime.getTime()-offsetMs).toISOString();}
+  return{ev,title,body,labels,cv,schedMode,publishDate};
+}
+async function publishGeneratedContent(item){
+  const{ev,title,body,labels,cv,schedMode,publishDate}=item;
+  setLog(ev,{thumb:cv.toDataURL('image/jpeg',.85)});
+  let thumbHtml='';
+  if(CFG.imgbbKey){try{const fd=new FormData();fd.append('key',CFG.imgbbKey);fd.append('image',cv.toDataURL('image/jpeg',.9).split(',')[1]);const res=await fetch('https://api.imgbb.com/1/upload',{method:'POST',body:fd});const json=await res.json();if(json.success){thumbHtml='<div><img src="'+json.data.url+'" style="max-width:100%;height:auto;border-radius:10px;margin-bottom:18px" alt="'+title+'"></div>\n';setLog(ev,{thumb:json.data.url});}}catch(e){}}
+  if(!thumbHtml)thumbHtml='<div><img src="'+cv.toDataURL('image/jpeg',.85)+'" style="max-width:100%;height:auto;border-radius:10px;margin-bottom:18px" alt="'+title+'"></div>\n';
+  const html=thumbHtml+body.replace(/\n/g,'<br>');
+  const post=await postRaw(title,html,schedMode,labels,publishDate);
+  if(post){setLog(ev,{postId:post.id,postUrl:post.url,status:schedMode,title,league:ev.league.name,scheduledFor:publishDate||null});addRecentPost(title,post.url,schedMode);return true;}
+  return false;
+}
+function renderBulkPreview(){
+  const list=document.getElementById('bulk-preview-list');
+  document.getElementById('bulk-preview-count').textContent=bulkPreviewQueue.length;
+  list.innerHTML=bulkPreviewQueue.map((item,i)=>{
+    const snippet=item.body.replace(/\n+/g,' ').trim().substring(0,160);
+    return'<div class="card" style="padding:10px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">'
+      +'<img src="'+item.cv.toDataURL('image/jpeg',.7)+'" style="width:90px;height:51px;object-fit:cover;border-radius:6px;flex-shrink:0">'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="font-weight:700;font-size:.8rem;margin-bottom:3px">'+item.title+'</div>'
+      +'<div style="font-size:.7rem;color:var(--muted2)">'+snippet+'…</div>'
+      +'</div>'
+      +'<button class="btn-sm" style="background:#3d0c0c;color:#fff" onclick="removeBulkPreviewItem('+i+')">✕</button>'
+      +'</div>';
+  }).join('')||'<div style="color:var(--muted2);text-align:center;padding:20px">Nothing left to post.</div>';
+}
+function removeBulkPreviewItem(i){bulkPreviewQueue.splice(i,1);renderBulkPreview();}
+function cancelBulkPost(){bulkPreviewQueue=[];closeModal('modal-bulk-preview');}
+async function confirmBulkPost(){
+  if(!bulkPreviewQueue.length){closeModal('modal-bulk-preview');return;}
+  const queue=bulkPreviewQueue;bulkPreviewQueue=[];
+  closeModal('modal-bulk-preview');
+  toast('Posting '+queue.length+' events…','i');
+  let ok=0,fail=0;
+  for(const item of queue){
+    try{const success=await publishGeneratedContent(item);success?ok++:fail++;}catch(e){fail++;}
+    await new Promise(r=>setTimeout(r,1200));
+  }
+  selectedEventIds.clear();updateSelCount();renderEventCards(allEvents);
+  toast(fail?ok+' posted, '+fail+' failed ✕':'Bulk post complete ✓',fail?'w':'s');
+}
 async function bulkPostAll(){
   if(!accessToken){toast('Sign in first','e');return;}
   if(!selectedEventIds.size){toast('Select events first — tick individual cards or use "Select filtered/visible"','e');return;}
   const toPost=allEvents.filter(ev=>selectedEventIds.has(String(ev.id))&&!getLog(ev)?.postId);
   if(!toPost.length){toast('Selected events are already posted','i');return;}
-  toast('Bulk posting '+toPost.length+' events…','i');
-  for(const ev of toPost){await quickPostEv(encodeURIComponent(String(ev.id)));await new Promise(r=>setTimeout(r,1200));}
-  toast('Bulk post complete ✓','s');
-  selectedEventIds.clear();updateSelCount();renderEventCards(allEvents);
+  toast('Generating preview for '+toPost.length+' events…','i');
+  bulkPreviewQueue=[];
+  for(const ev of toPost){try{bulkPreviewQueue.push(await generatePostContent(ev));}catch(e){console.warn('[BulkPreview]',e.message);}}
+  renderBulkPreview();
+  openModal('modal-bulk-preview');
 }
 const RACE_IMGS={'monaco':'https://www.formula1.com/content/dam/fom-website/2018-redesign-assets/Circuit%20maps%2016x9/Monaco_Circuit.png.transform/7col/image.png','formula 1':'https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/F1.svg/1280px-F1.svg.png','motogp':'https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/MotoGP_Logo.svg/1280px-MotoGP_Logo.svg.png','nascar':'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/NASCAR_Logo.svg/1280px-NASCAR_Logo.svg.png'};
 function getRaceImg(ev){const hay=((ev.name||'')+(ev.venue||'')).toLowerCase();for(const k of Object.keys(RACE_IMGS).sort((a,b)=>b.length-a.length))if(hay.includes(k))return RACE_IMGS[k];if(ev.league?.id==='f1')return RACE_IMGS['formula 1'];if(ev.league?.id==='motogp')return RACE_IMGS['motogp'];if(ev.league?.id==='nascar')return RACE_IMGS['nascar'];return'';}
@@ -2504,9 +2612,12 @@ function updateSchedQueue(){
 
 // ═══ POST LOG ═══
 function renderPostLog(){
-  const tbody=document.getElementById('log-tbody');if(!tbody)return;const entries=Object.values(postLog);
-  if(!entries.length){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted2);padding:20px">No posts yet.</td></tr>';return;}
-  tbody.innerHTML=entries.slice().reverse().map(p=>'<tr><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(p.title||'')+'">'+(p.title||'—')+'</td><td style="color:var(--muted2);font-size:.7rem">'+(p.league||'—')+'</td><td>'+(p.thumb?'<span class="thumb-badge">🖼️ Yes</span>':'<span style="color:var(--muted2);font-size:.7rem">—</span>')+'</td><td><span class="post-badge '+(p.status||'draft').toLowerCase()+'">'+(p.status||'draft')+'</span></td><td>'+(p.hasHL?'<span style="color:var(--green);font-size:.7rem">✓</span>':'<span style="color:var(--muted2);font-size:.7rem">—</span>')+'</td><td style="color:var(--muted2);font-size:.68rem">'+(p.ts?new Date(p.ts).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—')+'</td><td>'+(p.postUrl?'<a href="'+p.postUrl+'" target="_blank" style="font-size:.7rem;color:var(--blue)">View</a>':'—')+'</td></tr>').join('');
+  const tbody=document.getElementById('log-tbody');if(!tbody)return;
+  const q=(v('log-search')||'').toLowerCase();
+  let entries=Object.entries(postLog);
+  if(q)entries=entries.filter(([k,p])=>(p.title||'').toLowerCase().includes(q)||(p.league||'').toLowerCase().includes(q));
+  if(!entries.length){tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted2);padding:20px">'+(q?'No matching posts.':'No posts yet.')+'</td></tr>';return;}
+  tbody.innerHTML=entries.slice().reverse().map(([k,p])=>'<tr><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(p.title||'')+'">'+(p.title||'—')+'</td><td style="color:var(--muted2);font-size:.7rem">'+(p.league||'—')+'</td><td>'+(p.thumb?'<span class="thumb-badge">🖼️ Yes</span>':'<span style="color:var(--muted2);font-size:.7rem">—</span>')+'</td><td><span class="post-badge '+(p.status||'draft').toLowerCase()+'">'+(p.status||'draft')+'</span></td><td>'+(p.hasHL?'<span style="color:var(--green);font-size:.7rem">✓</span>':'<span style="color:var(--muted2);font-size:.7rem">—</span>')+'</td><td style="color:var(--muted2);font-size:.68rem">'+(p.ts?new Date(p.ts).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—')+'</td><td>'+(p.postUrl?'<a href="'+p.postUrl+'" target="_blank" style="font-size:.7rem;color:var(--blue)">View</a>':'—')+'</td><td>'+(p.postId?'<button class="btn-sm" style="background:#3d0c0c;color:#fff;padding:4px 8px;font-size:.65rem" onclick="unpublishEntry(\''+encodeURIComponent(k)+'\')">🗑</button>':'')+'</td></tr>').join('');
 }
 
 // ═══ LEAGUE TOGGLES ═══
