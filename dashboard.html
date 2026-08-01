@@ -759,6 +759,12 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
       <div class="card-title">Blogger / Google OAuth</div>
       <div class="form-group"><label>Blog ID</label><input type="text" id="cfg-blogid" placeholder="123456789"></div>
       <div class="form-group"><label>Google OAuth Client ID</label><input type="text" id="cfg-clientid" placeholder="xxx.apps.googleusercontent.com"></div>
+      <div class="form-group"><label>Fallback OAuth Client ID <span style="color:var(--muted2);font-weight:400">— a second Cloud project's Client ID, for when the primary hits its Blogger API quota</span></label><input type="text" id="cfg-clientid-fallback" placeholder="xxx.apps.googleusercontent.com"></div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:.72rem;color:var(--muted2)">Active client:</span>
+        <span id="cfg-active-client-label" style="font-weight:800;font-family:var(--cond);text-transform:uppercase;font-size:.8rem">Primary</span>
+        <button class="btn-ghost btn-sm" id="cfg-toggle-client-btn" onclick="toggleActiveClient()" type="button">🔁 Switch to Fallback</button>
+      </div>
       <button class="btn-red btn-sm" onclick="saveCFG()">💾 Save</button>
     </div>
     <div class="card">
@@ -1319,7 +1325,7 @@ function esDashSyncSettings(){
 }
 
 let CFG={
-  blogId:'',clientId:'',imgbbKey:'',playerBase:'https://www.eclecticstreams.com.ng',
+  blogId:'',clientId:'',clientIdFallback:'',activeClientSlot:'primary',imgbbKey:'',playerBase:'https://www.eclecticstreams.com.ng',
   activeLeagues:['ucl','epl','laliga','seriea','bundesliga','f1','nba','ufc'],
   schedTiming:60,schedStatus:'DRAFT',schedInterval:300000,
   schedEnabled:false,schedThumbs:true,logoOverridesRaw:'',
@@ -1473,7 +1479,7 @@ function saveAll(){
   esDashSyncSettings(); // push CFG to Firebase so it's available on other devices
 }
 function saveCFG(){
-  CFG.blogId=v('cfg-blogid');CFG.clientId=v('cfg-clientid');
+  CFG.blogId=v('cfg-blogid');CFG.clientId=v('cfg-clientid');CFG.clientIdFallback=v('cfg-clientid-fallback');
   CFG.imgbbKey=v('cfg-imgbb');CFG.ytApiKey=v('cfg-yt-key');CFG.playerBase=v('cfg-player')||'https://www.eclecticstreams.com.ng';
   CFG.schedTiming=parseInt(document.getElementById('sched-timing')?.value||60);
   CFG.schedStatus=document.getElementById('sched-def-status')?.value||'DRAFT';
@@ -1496,7 +1502,8 @@ function saveCFG(){
   saveAll();updateClaudeStatus();toast('Settings saved ✓','s');
 }
 function applyConfigToUI(){
-  set('cfg-blogid',CFG.blogId);set('cfg-clientid',CFG.clientId);
+  set('cfg-blogid',CFG.blogId);set('cfg-clientid',CFG.clientId);set('cfg-clientid-fallback',CFG.clientIdFallback||'');
+  updateActiveClientUI();
   set('cfg-imgbb',CFG.imgbbKey);set('cfg-yt-key',CFG.ytApiKey||'');set('cfg-player',CFG.playerBase);
   set('cfg-apifootball-key',CFG.apiFootballKey||'');
   if(document.getElementById('cfg-use-apifootball'))document.getElementById('cfg-use-apifootball').checked=CFG.useApiFootball??true;
@@ -2543,9 +2550,31 @@ function updateIframeBox(){const urls=getMoraURLs();document.getElementById('ifr
 function insertIframe(){const urls=getMoraURLs();if(!urls.length){toast('Add at least one stream URL','w');return;}const body=document.getElementById('post-body');body.value+=(body.value?'\n\n':'')+buildIframe(urls);updateSEO();toast('iframe inserted ✓','s');}
 
 // ═══ BLOGGER AUTH ═══
+// Two OAuth Client IDs can be configured (primary + fallback, e.g. two separate
+// Google Cloud projects) so a Blogger API quota hit on one can be worked around
+// by switching to the other without re-typing the ID each time.
+function activeClientId(){return(CFG.activeClientSlot==='fallback'&&CFG.clientIdFallback)?CFG.clientIdFallback:CFG.clientId;}
+function updateActiveClientUI(){
+  const isFallback=CFG.activeClientSlot==='fallback';
+  const lbl=document.getElementById('cfg-active-client-label');
+  if(lbl){lbl.textContent=isFallback?'Fallback':'Primary';lbl.style.color=isFallback?'var(--gold, #d4a017)':'var(--text)';}
+  const btn=document.getElementById('cfg-toggle-client-btn');
+  if(btn)btn.textContent=isFallback?'🔁 Switch to Primary':'🔁 Switch to Fallback';
+}
+function toggleActiveClient(){
+  const goingToFallback=CFG.activeClientSlot!=='fallback';
+  if(goingToFallback&&!CFG.clientIdFallback){toast('Enter a Fallback OAuth Client ID first, then Save','e');return;}
+  CFG.activeClientSlot=goingToFallback?'fallback':'primary';
+  saveAll();
+  updateActiveClientUI();
+  if(accessToken){signOut();toast('Switched to '+(goingToFallback?'fallback':'primary')+' client — signed out, sign in again to get a token from it','i');}
+  else toast('Now using the '+(goingToFallback?'fallback':'primary')+' client for sign-in','s');
+}
 function handleAuth(){
-  if(accessToken){signOut();return;}if(!CFG.clientId){toast('Enter OAuth Client ID in Settings','e');return;}
-  const client=google.accounts.oauth2.initTokenClient({client_id:CFG.clientId,scope:'https://www.googleapis.com/auth/blogger',callback:r=>{if(r.error){toast('Auth error: '+r.error,'e');return;}accessToken=r.access_token;document.getElementById('auth-dot').className='on';document.getElementById('auth-label').textContent='Signed in';document.getElementById('auth-label').style.color='var(--green)';document.getElementById('auth-btn').textContent='Sign out';toast('Signed in ✓','s');}});
+  if(accessToken){signOut();return;}
+  const clientId=activeClientId();
+  if(!clientId){toast('Enter '+(CFG.activeClientSlot==='fallback'?'a Fallback':'an')+' OAuth Client ID in Settings','e');return;}
+  const client=google.accounts.oauth2.initTokenClient({client_id:clientId,scope:'https://www.googleapis.com/auth/blogger',callback:r=>{if(r.error){toast('Auth error: '+r.error,'e');return;}accessToken=r.access_token;document.getElementById('auth-dot').className='on';document.getElementById('auth-label').textContent='Signed in';document.getElementById('auth-label').style.color='var(--green)';document.getElementById('auth-btn').textContent='Sign out';toast('Signed in ✓','s');}});
   client.requestAccessToken();
 }
 function signOut(){if(accessToken)try{google.accounts.oauth2.revoke(accessToken,()=>{});}catch(e){}accessToken=null;document.getElementById('auth-dot').className='';document.getElementById('auth-label').textContent='Not signed in';document.getElementById('auth-label').style.color='var(--muted)';document.getElementById('auth-btn').textContent='Sign in';toast('Signed out','i');}
