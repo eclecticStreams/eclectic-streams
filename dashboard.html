@@ -1999,11 +1999,12 @@ function parseESPN(ev,league){
 const TEAM_ALIAS_AF={
   'man utd':'manchester united','man u':'manchester united','manu':'manchester united',
   'man city':'manchester city','man cty':'manchester city',
-  'spurs':'tottenham hotspur','tottenham':'tottenham hotspur',
+  'spurs':'tottenham hotspur','tottenham':'tottenham hotspur','tottenham hotspurs':'tottenham hotspur',
   'wolves':'wolverhampton wanderers',
   'psg':'paris saint germain','paris sg':'paris saint germain',
   'bayern':'bayern munich','fc bayern munchen':'bayern munich',
   'inter':'inter milan','internazionale':'inter milan',
+  'inter miami cf':'inter miami',
   'atletico':'atletico madrid','atleti':'atletico madrid',
   'dortmund':'borussia dortmund','bvb':'borussia dortmund',
   'leverkusen':'bayer leverkusen',
@@ -2137,7 +2138,7 @@ async function unpublishEntry(rawKey){
   if(!confirm('Unpublish "'+(entry.title||'this post')+'" from Blogger?\n\nThis permanently deletes the live/draft post. This cannot be undone.'))return;
   if(!accessToken){toast('Sign in first','e');return;}
   try{
-    const res=await fetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+entry.postId,{method:'DELETE',headers:{'Authorization':'Bearer '+accessToken}});
+    const res=await bloggerFetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+entry.postId,{method:'DELETE',headers:{'Authorization':'Bearer '+accessToken}});
     if(!res.ok&&res.status!==404)throw new Error('Blogger DELETE '+res.status+': '+await res.text());
   }catch(e){toast('Unpublish failed: '+e.message,'e');return;}
   await deleteLogRecord(key,pushId,true);
@@ -2154,7 +2155,7 @@ async function unpublishLogRecord(rawPushId){
   if(!confirm('Delete "'+(rec.title||'this post')+'" permanently from Blogger?\n\nThis cannot be undone.'))return;
   if(!accessToken){toast('Sign in first','e');return;}
   try{
-    const res=await fetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+rec.postId,{method:'DELETE',headers:{'Authorization':'Bearer '+accessToken}});
+    const res=await bloggerFetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+rec.postId,{method:'DELETE',headers:{'Authorization':'Bearer '+accessToken}});
     if(!res.ok&&res.status!==404)throw new Error('Blogger DELETE '+res.status+': '+await res.text());
   }catch(e){toast('Unpublish failed: '+e.message,'e');return;}
   await deleteLogRecord(key,pushId,true);
@@ -2583,13 +2584,30 @@ async function postToBlogger(){
     }
   }
 }
+// ═══ BLOGGER FETCH WITH RETRY-ON-429 ═══
+// Blogger API enforces a short burst-limit window; the existing 1200ms/1500ms
+// spacing between requests reduces how often it's hit but doesn't eliminate it.
+// This wraps every Blogger call so a 429 is retried with exponential backoff
+// (honoring Retry-After when Google sends one) instead of failing outright.
+async function bloggerFetch(url,options,maxRetries=4){
+  let attempt=0;
+  while(true){
+    const res=await fetch(url,options);
+    if(res.status!==429||attempt>=maxRetries)return res;
+    attempt++;
+    const retryAfter=res.headers.get('Retry-After');
+    const waitMs=retryAfter?Math.round(parseFloat(retryAfter)*1000):Math.min(30000,1000*Math.pow(2,attempt))+Math.round(Math.random()*500);
+    toast('Blogger rate limit hit — retrying in '+Math.round(waitMs/1000)+'s ('+attempt+'/'+maxRetries+')…','w');
+    await new Promise(r=>setTimeout(r,waitMs));
+  }
+}
 async function postRaw(title,html,status,labels,publishDate=null){
   if(!CFG.blogId||!accessToken)return null;
   let url='https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/';
   const isLive=status==='LIVE';if(!isLive)url+='?isDraft=true';
   const body={kind:'blogger#post',blog:{id:CFG.blogId},title,content:html,labels:labels||['eclectic streams','live ']};
   if(publishDate&&isLive)body.published=publishDate;
-  try{const res=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify(body)});if(!res.ok)throw new Error('Blogger '+res.status+': '+await res.text());return await res.json();}
+  try{const res=await bloggerFetch(url,{method:'POST',headers:{'Authorization':'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify(body)});if(!res.ok)throw new Error('Blogger '+res.status+': '+await res.text());return await res.json();}
   catch(e){toast('Post failed: '+e.message,'e');return null;}
 }
 
@@ -2604,7 +2622,7 @@ async function updateExistingPost(ev,title,html,status,labels,publishDate=null){
   let url='https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+postId;
   if(!isLive)url+='?publish=false';
   try{
-    const res=await fetch(url,{method:'PUT',headers:{'Authorization':'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await bloggerFetch(url,{method:'PUT',headers:{'Authorization':'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(!res.ok)throw new Error('Blogger PUT '+res.status+': '+await res.text());
     const post=await res.json();
     // Update postLog for the event
@@ -2642,7 +2660,7 @@ function updateLogRecordDirect(pushId,data){
 async function fetchPostBody(postId){
   if(!accessToken||!CFG.blogId)return null;
   try{
-    const res=await fetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+postId,{headers:{'Authorization':'Bearer '+accessToken}});
+    const res=await bloggerFetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+postId,{headers:{'Authorization':'Bearer '+accessToken}});
     if(!res.ok)throw new Error('HTTP '+res.status);
     const data=await res.json();
     return{title:data.title||'',content:(data.content||'').replace(/<br>/g,'\n'),labels:data.labels||[]};
@@ -2779,7 +2797,7 @@ async function postHighlights(){
     // UPDATE existing post via PUT
     toast('Updating post…','i');
     try{
-      const res=await fetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+resolvedPostId,{method:'PUT',headers:{'Authorization':'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({kind:'blogger#post',id:resolvedPostId,blog:{id:CFG.blogId},title,content:html,labels:getLabels(ev)})});
+      const res=await bloggerFetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+resolvedPostId,{method:'PUT',headers:{'Authorization':'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({kind:'blogger#post',id:resolvedPostId,blog:{id:CFG.blogId},title,content:html,labels:getLabels(ev)})});
       if(!res.ok)throw new Error('HTTP '+res.status+': '+await res.text());
       const post=await res.json();
       const thumbUpdate=v('hl-thumb-url')||pl?.thumb||null;
@@ -3765,8 +3783,9 @@ async function loadInternalPosts(){
 
   try{
 
-    const res = await fetch(
-      `https://www.googleapis.com/blogger/v3/blogs/${CFG.blogId}/posts?maxResults=500`
+    const res = await bloggerFetch(
+      `https://www.googleapis.com/blogger/v3/blogs/${CFG.blogId}/posts?maxResults=500`,
+      {}
     );
 
     const data = await res.json();
