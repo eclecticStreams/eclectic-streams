@@ -2052,6 +2052,43 @@ function normalizeApiFootballEvent(fx){
     };
   }catch{return null;}
 }
+// Matches an API-Football fixture's league to one of our internal league ids, so we
+// only keep fixtures from leagues you actually track (CFG.activeLeagues) instead of
+// ingesting every match happening worldwide on that date. API-Football's numeric
+// league IDs are stable, but not all ~1200 competitions it covers are verified here —
+// matching is done by league name (+ country where the name alone is ambiguous, e.g.
+// "Serie A" exists in both Italy and Brazil). A league not listed here simply won't be
+// pulled in from API-Football (safe default: under-include, never wrongly include),
+// even if it's toggled active for ESPN — tell me if you spot a gap and I'll add it.
+const AF_LEAGUE_MATCH={
+  ucl:{name:['champions league']},uel:{name:['europa league']},uecl:{name:['conference league']},
+  epl:{name:['premier league'],country:'england'},laliga:{name:['la liga'],country:'spain'},
+  seriea:{name:['serie a'],country:'italy'},bundesliga:{name:['bundesliga'],country:'germany'},
+  ligue1:{name:['ligue 1'],country:'france'},mls:{name:['major league soccer'],country:'usa'},
+  worldcup:{name:['world cup']},euro:{name:['euro championship']},unl:{name:['nations league']},
+  intlfriendly:{name:['friendlies'],country:'world'},clubfriendly:{name:['friendlies']},
+  efl:{name:['championship'],country:'england'},spl:{name:['pro league'],country:'saudi-arabia'},
+  eredivisie:{name:['eredivisie'],country:'netherlands'},primeira:{name:['primeira liga','liga portugal'],country:'portugal'},
+  facup:{name:['fa cup'],country:'england'},eflcup:{name:['league cup'],country:'england'},
+  cwc:{name:['club world cup']},afcon:{name:['africa cup of nations']},copaamrica:{name:['copa america']},
+  goldcup:{name:['gold cup']},concacafcc:{name:['concacaf champions league']},
+  spfl:{name:['premiership'],country:'scotland'},superlig:{name:['super lig'],country:'turkey'},
+  brasileirao:{name:['serie a'],country:'brazil'},ligamx:{name:['liga mx'],country:'mexico'},
+  argentina:{name:['liga profesional','primera division'],country:'argentina'},
+  wsl:{name:['super league'],country:'england'},ligaf:{name:['liga f'],country:'spain'},
+  nwsl:{name:['nwsl'],country:'usa'},
+};
+function afMatchesActiveLeague(fx){
+  const name=(fx.league?.name||'').toLowerCase();
+  const country=(fx.league?.country||'').toLowerCase();
+  return (CFG.activeLeagues||[]).some(function(id){
+    const m=AF_LEAGUE_MATCH[id];
+    if(!m)return false;
+    const nameOk=m.name.some(function(n){return name.includes(n);});
+    if(!nameOk)return false;
+    return m.country?country===m.country:true;
+  });
+}
 async function fetchApiFootballFixturesDash(dateISO){
   const key=(CFG.apiFootballKey||'').trim();
   if(!key)return[];
@@ -2059,7 +2096,8 @@ async function fetchApiFootballFixturesDash(dateISO){
     const r=await fetch(`https://v3.football.api-sports.io/fixtures?date=${dateISO}`,{headers:{'x-apisports-key':key}});
     if(!r.ok)return[];
     const d=await r.json();
-    return(d.response||[]).map(normalizeApiFootballEvent).filter(Boolean);
+    const relevant=(d.response||[]).filter(afMatchesActiveLeague);
+    return relevant.map(normalizeApiFootballEvent).filter(Boolean);
   }catch{return[];}
 }
 
