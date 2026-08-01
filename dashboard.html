@@ -1151,7 +1151,7 @@ function esDashSignIn(){
 // rendering, bulk-post dedupe) keep working unchanged. Reads are public per
 // the Firebase rules, so this is safe to start before sign-in. ═══
 function rebuildPostLogMirror(){
-  const next={};
+  const next={...sessionPostLog};
   Object.keys(postLogIndexMap).forEach(function(key){
     const pid=postLogIndexMap[key];
     const rec=postLogRecords[pid];
@@ -1336,6 +1336,9 @@ let allEvents=[],channels=[],postLog={},adSlots=[],cardOverrides={};
 let postLogRecords={};   // pushId -> full log record (complete history, all posts ever made)
 let postLogIndexMap={};  // evKey -> pushId of the CURRENT/latest post for that fixture
 let pendingLogCleanup={};// pushId -> evKey, for records where Blogger deleted OK but Firebase cleanup failed
+let sessionPostLog={};   // evKey -> record, set the instant a post succeeds and NEVER cleared by
+                         // a Firebase listener rebuild — protects the "already posted" dedupe
+                         // (Bulk Post, Scheduler) from a rejected/rolled-back Firebase write.
 const POST_LOGS_PATH='postLogs';
 const POST_LOG_INDEX_PATH='postLogIndex';
 let accessToken=null,editingCH=null,editingAd=null;
@@ -2170,6 +2173,7 @@ async function deleteLogRecord(key,pushId,bloggerAlreadyDeleted){
     if(evId!==undefined)await esRtdb.ref(ES_MATCH_PATH+'/match_'+evId).remove().catch(function(){});
     if(pushId){delete pendingLogCleanup[pushId];delete postLogRecords[pushId];}
     if(key&&postLogIndexMap[key]===pushId){delete postLogIndexMap[key];delete postLog[key];}
+    if(key)delete sessionPostLog[key];
     if(evId!==undefined){
       const idx=allEvents.findIndex(function(e){return String(e.id)===String(evId);});
       if(idx>-1)allEvents.splice(idx,1);
@@ -2235,6 +2239,7 @@ function setLog(ev,data){
   const key=evKey(ev);
   const merged={...(postLog[key]||{}),...data,evId:ev?.id!==undefined?ev.id:(postLog[key]||{}).evId,ts:Date.now()};
   postLog[key]=merged; // optimistic local update — Firebase listener will reconcile shortly after
+  sessionPostLog[key]=merged; // survives even if the Firebase write below is rejected and rolled back
   saveAll();updateStats();
   writeLogToFirebase(key,ev,data);
   if(data.postUrl&&ev?.id)syncPostUrlToFirebase(ev,data.postUrl);
