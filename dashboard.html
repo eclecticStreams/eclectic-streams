@@ -1159,17 +1159,23 @@ function rebuildPostLogMirror(){
   });
   postLog=next;
 }
+let postLogRenderPending=false;
+function schedulePostLogRerender(){
+  if(postLogRenderPending)return;
+  postLogRenderPending=true;
+  setTimeout(function(){postLogRenderPending=false;updateStats();renderPostLog();renderEventCards(allEvents);},200);
+}
 function esDashInitPostLogs(){
   if(!esRtdb)return;
   esRtdb.ref(POST_LOG_INDEX_PATH).on('value',function(snap){
     postLogIndexMap=snap.val()||{};
     rebuildPostLogMirror();
-    updateStats();renderPostLog();renderEventCards(allEvents);
+    schedulePostLogRerender();
   });
   esRtdb.ref(POST_LOGS_PATH).on('value',function(snap){
     postLogRecords=snap.val()||{};
     rebuildPostLogMirror();
-    updateStats();renderPostLog();renderEventCards(allEvents);
+    schedulePostLogRerender();
   });
 }
 function esDashLoadChannels(){
@@ -2131,7 +2137,6 @@ async function unpublishEntry(rawKey){
     const res=await fetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+entry.postId,{method:'DELETE',headers:{'Authorization':'Bearer '+accessToken}});
     if(!res.ok&&res.status!==404)throw new Error('Blogger DELETE '+res.status+': '+await res.text());
   }catch(e){toast('Unpublish failed: '+e.message,'e');return;}
-  if(entry.evId!==undefined&&esRtdb)esRtdb.ref(ES_MATCH_PATH+'/match_'+entry.evId).update({postUrl:''}).catch(function(){});
   await deleteLogRecord(key,pushId,true);
 }
 function unpublishEv(ev){unpublishEntry(evKey(ev));}
@@ -2149,7 +2154,6 @@ async function unpublishLogRecord(rawPushId){
     const res=await fetch('https://www.googleapis.com/blogger/v3/blogs/'+CFG.blogId+'/posts/'+rec.postId,{method:'DELETE',headers:{'Authorization':'Bearer '+accessToken}});
     if(!res.ok&&res.status!==404)throw new Error('Blogger DELETE '+res.status+': '+await res.text());
   }catch(e){toast('Unpublish failed: '+e.message,'e');return;}
-  if(rec.evId!==undefined&&esRtdb)esRtdb.ref(ES_MATCH_PATH+'/match_'+rec.evId).update({postUrl:''}).catch(function(){});
   await deleteLogRecord(key,pushId,true);
 }
 // Shared cleanup: removes postLogs/<pushId> and, only if it's still the CURRENT
@@ -2159,13 +2163,19 @@ async function unpublishLogRecord(rawPushId){
 // from Blogger while lingering (inconsistently) in the dashboard.
 async function deleteLogRecord(key,pushId,bloggerAlreadyDeleted){
   if(!esRtdb){toast('Firebase not connected — cannot remove log entry','e');return;}
+  const evId=pushId&&postLogRecords[pushId]?postLogRecords[pushId].evId:undefined;
   try{
     if(pushId)await esRtdb.ref(POST_LOGS_PATH+'/'+pushId).remove();
     if(key&&postLogIndexMap[key]===pushId)await esRtdb.ref(POST_LOG_INDEX_PATH+'/'+key).remove();
+    if(evId!==undefined)await esRtdb.ref(ES_MATCH_PATH+'/match_'+evId).remove().catch(function(){});
     if(pushId){delete pendingLogCleanup[pushId];delete postLogRecords[pushId];}
     if(key&&postLogIndexMap[key]===pushId){delete postLogIndexMap[key];delete postLog[key];}
-    renderPostLog();renderEventCards(allEvents);updateStats();
-    toast(bloggerAlreadyDeleted?'Post unpublished ✓':'Log entry removed ✓','s');
+    if(evId!==undefined){
+      const idx=allEvents.findIndex(function(e){return String(e.id)===String(evId);});
+      if(idx>-1)allEvents.splice(idx,1);
+    }
+    renderPostLog();renderEventCards(allEvents);updateStats();updateSchedQueue();
+    toast(bloggerAlreadyDeleted?'Post & match removed ✓':'Log entry removed ✓','s');
   }catch(e){
     if(pushId)pendingLogCleanup[pushId]=key||'';
     renderPostLog();
@@ -2229,21 +2239,29 @@ function setLog(ev,data){
   writeLogToFirebase(key,ev,data);
   if(data.postUrl&&ev?.id)syncPostUrlToFirebase(ev,data.postUrl);
 }
+function stripUndefined(obj){const out={};Object.keys(obj||{}).forEach(function(k){if(obj[k]!==undefined)out[k]=obj[k];});return out;}
 function writeLogToFirebase(key,ev,data){
   if(!esRtdb)return;
   try{
     const now=Date.now();
     const pushId=postLogIndexMap[key];
     if(pushId&&postLogRecords[pushId]){
-      esRtdb.ref(POST_LOGS_PATH+'/'+pushId).update({...data,evKey:key,evId:ev?.id,updatedAt:now}).catch(function(e){console.warn('[postLog] update failed',e.message);});
+      const patch=stripUndefined({...data,evKey:key,evId:ev?.id,updatedAt:now});
+      postLogRecords[pushId]={...postLogRecords[pushId],...patch}; // keep local mirror in sync so a later rebuild can't revert this
+      esRtdb.ref(POST_LOGS_PATH+'/'+pushId).update(patch).catch(function(e){console.warn('[postLog] update failed',e.message);toast('Post Log sync failed: '+e.message,'e');});
     }else{
       const ref=esRtdb.ref(POST_LOGS_PATH).push();
       const newId=ref.key;
-      const record={...data,evKey:key,evId:ev?.id,createdAt:now,updatedAt:now,createdBy:(esFbUser&&(esFbUser.email||esFbUser.uid))||'dashboard'};
+      const record=stripUndefined({...data,evKey:key,evId:ev?.id,createdAt:now,updatedAt:now,createdBy:(esFbUser&&(esFbUser.email||esFbUser.uid))||'dashboard'});
+      // Register locally BEFORE the network round-trip completes — otherwise a second
+      // setLog() call for the same fixture moments later (thumbnail, then postId) races
+      // ahead of the listener echo and creates a duplicate record instead of updating
+      // this one, which is what caused entries to disappear/duplicate.
+      postLogIndexMap[key]=newId;postLogRecords[newId]=record;
       ref.set(record).then(function(){return esRtdb.ref(POST_LOG_INDEX_PATH+'/'+key).set(newId);})
-        .catch(function(e){console.warn('[postLog] create failed',e.message);});
+        .catch(function(e){console.warn('[postLog] create failed',e.message);toast('Post Log sync failed: '+e.message,'e');});
     }
-  }catch(e){console.warn('[postLog] write error',e.message);}
+  }catch(e){console.warn('[postLog] write error',e.message);toast('Post Log sync failed: '+e.message,'e');}
 }
 function evKey(ev){return ev.league.id+'|'+(ev.home?.name||ev.name||'').replace(/\s/g,'_')+'|'+(ev.away?.name||'').replace(/\s/g,'_');}
 async function genAndFill(sid){
@@ -2604,14 +2622,15 @@ async function updateExistingPost(ev,title,html,status,labels,publishDate=null){
 // currently the "latest" pointer for that fixture in postLogIndex.
 function updateLogRecordDirect(pushId,data){
   const now=Date.now();
+  const clean=stripUndefined(data);
   if(postLogRecords[pushId]){
-    postLogRecords[pushId]={...postLogRecords[pushId],...data,updatedAt:now};
+    postLogRecords[pushId]={...postLogRecords[pushId],...clean,updatedAt:now};
     const key=postLogRecords[pushId].evKey;
     if(key&&postLogIndexMap[key]===pushId)postLog[key]={...postLogRecords[pushId],_pushId:pushId};
   }
   renderPostLog();
   if(!esRtdb)return;
-  esRtdb.ref(POST_LOGS_PATH+'/'+pushId).update({...data,updatedAt:now}).catch(function(e){console.warn('[postLog] direct update failed',e.message);});
+  esRtdb.ref(POST_LOGS_PATH+'/'+pushId).update({...clean,updatedAt:now}).catch(function(e){console.warn('[postLog] direct update failed',e.message);toast('Post Log sync failed: '+e.message,'e');});
 }
 
 // Fetch post content from Blogger API (returns {title, content, labels} or null)
